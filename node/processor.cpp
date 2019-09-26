@@ -38,15 +38,43 @@ NodeProcessor::Horizon::Horizon()
 void NodeProcessor::Horizon::SetInfinite()
 {
 	m_Branching = MaxHeight;
-	m_SchwarzschildLo = MaxHeight;
-	m_SchwarzschildHi = MaxHeight;
+	m_Sync.Lo = MaxHeight;
+	m_Sync.Hi = MaxHeight;
+	m_Local.Lo = MaxHeight;
+	m_Local.Hi = MaxHeight;
 }
 
 void NodeProcessor::Horizon::SetStdFastSync()
 {
-	m_Branching = Rules::get().Macroblock.MaxRollback / 4; // inferior branches would be pruned when height difference is this.
-	m_SchwarzschildHi = 0; // would be adjusted anyway
-	m_SchwarzschildLo = 3600 * 24 * 180 / Rules::get().DA.Target_s; // 180-day period
+	uint32_t r = Rules::get().MaxRollback;
+	m_Branching = r / 4; // inferior branches would be pruned when height difference is this.
+
+	m_Sync.Hi = r;
+	m_Sync.Lo = r * 3; // 3-day period
+
+	m_Local.Hi = r * 2; // slightly higher than m_Sync.Loc, to feed other fast synchers
+	m_Local.Lo = r * 180; // 180-day period
+}
+
+void NodeProcessor::Horizon::Normalize()
+{
+	m_Branching = std::max(m_Branching, Height(1));
+
+	Height r = Rules::get().MaxRollback;
+
+	m_Sync.Hi = std::max(m_Sync.Hi, std::max(r, m_Branching));
+	m_Sync.Lo = std::max(m_Sync.Lo, m_Sync.Hi);
+
+	// Some nodes in production have a bug: if (Sync.Lo == Sync.Hi) - the last generated block that they send may be incorrect
+	// Workaround: make sure (Sync.Lo > Sync.Hi), at least by 1
+	//
+	// After HF2 the workaround can be removed
+	if ((m_Sync.Lo == m_Sync.Hi) && (m_Sync.Hi < MaxHeight))
+		m_Sync.Lo++;
+
+	// though not required, we prefer m_Local to be no less than m_Sync
+	m_Local.Hi = std::max(m_Local.Hi, m_Sync.Hi);
+	m_Local.Lo = std::max(m_Local.Lo, std::max(m_Local.Hi, m_Sync.Lo));
 }
 
 void NodeProcessor::Initialize(const char* szPath)
@@ -71,8 +99,6 @@ void NodeProcessor::Initialize(const char* szPath, const StartParams& sp)
 	Blob blob(hv);
 
 	ZeroObject(m_Extra);
-	m_Extra.m_LoHorizon = m_DB.ParamIntGetDef(NodeDB::ParamID::LoHorizon, Rules::HeightGenesis - 1);
-	m_Extra.m_Fossil = m_DB.ParamIntGetDef(NodeDB::ParamID::FossilHeight, Rules::HeightGenesis - 1);
 	m_Extra.m_TxoLo = m_DB.ParamIntGetDef(NodeDB::ParamID::HeightTxoLo, Rules::HeightGenesis - 1);
 	m_Extra.m_TxoHi = m_DB.ParamIntGetDef(NodeDB::ParamID::HeightTxoHi, Rules::HeightGenesis - 1);
 
@@ -158,7 +184,10 @@ void NodeProcessor::Initialize(const char* szPath, const StartParams& sp)
 
 	m_Extra.m_Txos = get_TxosBefore(m_Cursor.m_ID.m_Height + 1);
 
-	OnHorizonChanged();
+	m_Horizon.Normalize();
+
+	if (PruneOld())
+		Vacuum();
 
 	if (sp.m_ResetCursor)
 	{
@@ -166,10 +195,8 @@ void NodeProcessor::Initialize(const char* szPath, const StartParams& sp)
 
 		m_Extra.m_TxoLo = 0;
 		m_Extra.m_TxoHi = 0;
-		m_Extra.m_Fossil = 0;
 		m_DB.ParamSet(NodeDB::ParamID::HeightTxoLo, &m_Extra.m_TxoLo, nullptr);
 		m_DB.ParamSet(NodeDB::ParamID::HeightTxoHi, &m_Extra.m_TxoHi, nullptr);
-		m_DB.ParamSet(NodeDB::ParamID::FossilHeight, &m_Extra.m_Fossil, nullptr);
 
 	}
 	else
@@ -275,16 +302,6 @@ void NodeProcessor::CommitUtxosAndDB()
 
 	if (bFlushUtxos)
 		m_Utxos.FlushStrict(us);
-}
-
-void NodeProcessor::OnHorizonChanged()
-{
-	m_Horizon.m_SchwarzschildHi = std::max(m_Horizon.m_SchwarzschildHi, m_Horizon.m_Branching);
-	m_Horizon.m_SchwarzschildHi = std::max(m_Horizon.m_SchwarzschildHi, (Height) Rules::get().Macroblock.MaxRollback);
-	m_Horizon.m_SchwarzschildLo = std::max(m_Horizon.m_SchwarzschildLo, m_Horizon.m_SchwarzschildHi);
-
-	if (PruneOld())
-		Vacuum();
 }
 
 void NodeProcessor::Vacuum()
@@ -527,7 +544,7 @@ void NodeProcessor::EnumCongestions()
 	{
 		bool bFirstTime =
 			!IsFastSync() &&
-			IsBigger3(pMaxTarget->m_Height, m_Cursor.m_ID.m_Height, m_Horizon.m_SchwarzschildHi, m_Horizon.m_SchwarzschildHi / 2);
+			IsBigger3(pMaxTarget->m_Height, m_Cursor.m_ID.m_Height, m_Horizon.m_Sync.Hi, m_Horizon.m_Sync.Hi / 2);
 
 		if (bFirstTime)
 		{
@@ -535,8 +552,8 @@ void NodeProcessor::EnumCongestions()
 			// TODO - verify the headers w.r.t. difficulty and Chainwork
 			m_SyncData.m_h0 = pMaxTarget->m_Height - pMaxTarget->m_Rows.size();
 
-			if (pMaxTarget->m_Height > m_Horizon.m_SchwarzschildLo)
-				m_SyncData.m_TxoLo = pMaxTarget->m_Height - m_Horizon.m_SchwarzschildLo;
+			if (pMaxTarget->m_Height > m_Horizon.m_Sync.Lo)
+				m_SyncData.m_TxoLo = pMaxTarget->m_Height - m_Horizon.m_Sync.Lo;
 
 			m_SyncData.m_TxoLo = std::max(m_SyncData.m_TxoLo, m_Extra.m_TxoLo);
 		}
@@ -544,13 +561,13 @@ void NodeProcessor::EnumCongestions()
 		// check if the target should be moved fwd
 		bool bTrgChange =
 			(IsFastSync() || bFirstTime) &&
-			IsBigger2(pMaxTarget->m_Height, m_SyncData.m_Target.m_Height, m_Horizon.m_SchwarzschildHi);
+			IsBigger2(pMaxTarget->m_Height, m_SyncData.m_Target.m_Height, m_Horizon.m_Sync.Hi);
 
 		if (bTrgChange)
 		{
 			Height hTargetPrev = bFirstTime ? (pMaxTarget->m_Height - pMaxTarget->m_Rows.size()) : m_SyncData.m_Target.m_Height;
 
-			m_SyncData.m_Target.m_Height = pMaxTarget->m_Height - m_Horizon.m_SchwarzschildHi;
+			m_SyncData.m_Target.m_Height = pMaxTarget->m_Height - m_Horizon.m_Sync.Hi;
 			m_SyncData.m_Target.m_Row = pMaxTarget->m_Rows.at(pMaxTarget->m_Height - m_SyncData.m_Target.m_Height);
 
 			if (m_SyncData.m_TxoLo)
@@ -621,9 +638,25 @@ const uint64_t* NodeProcessor::get_CachedRows(const NodeDB::StateID& sid, Height
 	return nullptr;
 }
 
+Height NodeProcessor::get_LowestReturnHeight() const
+{
+	Height hRet = m_Extra.m_TxoHi;
+
+	Height h0 = IsFastSync() ? m_SyncData.m_h0 : m_Cursor.m_ID.m_Height;
+	Height hMaxRollback = Rules::get().MaxRollback;
+
+	if (h0 > hMaxRollback)
+	{
+		h0 -= hMaxRollback;
+		hRet = std::max(hRet, h0);
+	}
+
+	return hRet;
+}
+
 void NodeProcessor::RequestDataInternal(const Block::SystemState::ID& id, uint64_t row, bool bBlock, const NodeDB::StateID& sidTrg)
 {
-	if (id.m_Height >= m_Extra.m_LoHorizon)
+	if (id.m_Height >= get_LowestReturnHeight())
 	{
 		RequestData(id, bBlock, sidTrg);
 	}
@@ -1123,13 +1156,9 @@ void NodeProcessor::TryGoUp()
 				{
 					LOG_INFO() << "Fast-sync succeeded";
 
-					// raise fossil height, hTxoLo, hTxoHi
-					RaiseFossil(m_Cursor.m_ID.m_Height);
+					// raise hTxoLo, hTxoHi
 					RaiseTxoHi(m_Cursor.m_ID.m_Height);
 					RaiseTxoLo(m_SyncData.m_TxoLo);
-
-					m_Extra.m_LoHorizon = m_Cursor.m_ID.m_Height;
-					m_DB.ParamSet(NodeDB::ParamID::LoHorizon, &m_Extra.m_LoHorizon, NULL);
 
 					ZeroObject(m_SyncData);
 					SaveSyncData();
@@ -1214,60 +1243,12 @@ Height NodeProcessor::PruneOld()
 		}
 	}
 
-	if (m_Cursor.m_Sid.m_Height - 1 > m_Extra.m_Fossil + Rules::get().Macroblock.MaxRollback)
-	{
-		Height hTrg = m_Cursor.m_Sid.m_Height - 1 - Rules::get().Macroblock.MaxRollback;
-		assert(hTrg > m_Extra.m_Fossil);
+	if (IsBigger2(m_Cursor.m_Sid.m_Height, m_Extra.m_TxoLo, m_Horizon.m_Local.Lo))
+		hRet += RaiseTxoLo(m_Cursor.m_Sid.m_Height - m_Horizon.m_Local.Lo);
 
-		hRet += RaiseFossil(hTrg);
-	}
+	if (IsBigger2(m_Cursor.m_Sid.m_Height, m_Extra.m_TxoHi, m_Horizon.m_Local.Hi))
+		hRet += RaiseTxoHi(m_Cursor.m_Sid.m_Height - m_Horizon.m_Local.Hi);
 
-	// add some reserve to Lo/Hi, to give some time to fast-syncing peers to download it
-	Height hReserve = Rules::get().Macroblock.MaxRollback / 2;
-	if (m_Cursor.m_Sid.m_Height > hReserve)
-	{
-		Height h = m_Cursor.m_Sid.m_Height - 1 - hReserve;
-
-		if (h > m_Extra.m_TxoLo + m_Horizon.m_SchwarzschildLo)
-			hRet += RaiseTxoLo(h - m_Horizon.m_SchwarzschildLo);
-
-		if (h > m_Extra.m_TxoHi + m_Horizon.m_SchwarzschildHi)
-			hRet += RaiseTxoHi(h - m_Horizon.m_SchwarzschildHi);
-	}
-
-	return hRet;
-}
-
-Height NodeProcessor::RaiseFossil(Height hTrg)
-{
-	if (hTrg <= m_Extra.m_Fossil)
-		return 0;
-
-	Height hRet = 0;
-
-	while (m_Extra.m_Fossil < hTrg)
-	{
-		m_Extra.m_Fossil++;
-
-		NodeDB::WalkerState ws(m_DB);
-		for (m_DB.EnumStatesAt(ws, m_Extra.m_Fossil); ws.MoveNext(); )
-		{
-			if (NodeDB::StateFlags::Active & m_DB.GetStateFlags(ws.m_Sid.m_Row))
-				m_DB.DelStateBlockPP(ws.m_Sid.m_Row);
-			else
-			{
-				m_DB.SetStateNotFunctional(ws.m_Sid.m_Row);
-
-				m_DB.DelStateBlockAll(ws.m_Sid.m_Row);
-				m_DB.set_Peer(ws.m_Sid.m_Row, NULL);
-			}
-
-			hRet++;
-		}
-
-	}
-
-	m_DB.ParamSet(NodeDB::ParamID::FossilHeight, &m_Extra.m_Fossil, NULL);
 	return hRet;
 }
 
@@ -1667,18 +1648,6 @@ bool NodeProcessor::HandleBlock(const NodeDB::StateID& sid, MultiblockContext& m
 			m_DB.set_StateExtra(sid.m_Row, &offsAcc);
 
 			m_DB.set_StateTxos(sid.m_Row, &m_Extra.m_Txos);
-
-			if (!IsFastSync())
-			{
-				// no need to adjust LoHorizon in batch mode
-				assert(m_Extra.m_LoHorizon <= m_Cursor.m_Sid.m_Height);
-				if (m_Cursor.m_Sid.m_Height - m_Extra.m_LoHorizon > Rules::get().Macroblock.MaxRollback)
-				{
-					m_Extra.m_LoHorizon = m_Cursor.m_Sid.m_Height - Rules::get().Macroblock.MaxRollback;
-					m_DB.ParamSet(NodeDB::ParamID::LoHorizon, &m_Extra.m_LoHorizon, NULL);
-				}
-			}
-
 		}
 		else
             BEAM_VERIFY(HandleValidatedBlock(block.get_Reader(), block, sid.m_Height, false));
@@ -2225,7 +2194,7 @@ NodeProcessor::DataStatus::Enum NodeProcessor::OnStateInternal(const Block::Syst
 		}
 	}
 
-	if (s.m_Height < m_Extra.m_LoHorizon)
+	if (s.m_Height < get_LowestReturnHeight())
 		return DataStatus::Unreachable;
 
 	if (m_DB.StateFindSafe(id))
@@ -2288,7 +2257,7 @@ NodeProcessor::DataStatus::Enum NodeProcessor::OnBlock(const NodeDB::StateID& si
 		return DataStatus::Rejected;
 	}
 
-	if (sid.m_Height < m_Extra.m_LoHorizon)
+	if (sid.m_Height < get_LowestReturnHeight())
 		return DataStatus::Unreachable;
 
 	m_DB.SetStateBlock(sid.m_Row, bbP, bbE);
@@ -3268,10 +3237,8 @@ bool NodeProcessor::ImportMacroBlockInternal(Block::BodyBase::IMacroReader& r)
 		m_DB.MoveFwd(sid);
 	}
 
-	m_Extra.m_LoHorizon = m_Extra.m_Fossil = m_Extra.m_TxoHi = m_Extra.m_TxoLo = id.m_Height;
+	m_Extra.m_TxoHi = m_Extra.m_TxoLo = id.m_Height;
 
-	m_DB.ParamSet(NodeDB::ParamID::LoHorizon, &id.m_Height, NULL);
-	m_DB.ParamSet(NodeDB::ParamID::FossilHeight, &id.m_Height, NULL);
 	m_DB.ParamSet(NodeDB::ParamID::HeightTxoLo, &id.m_Height, NULL);
 	m_DB.ParamSet(NodeDB::ParamID::HeightTxoHi, &id.m_Height, NULL);
 

@@ -523,7 +523,6 @@
     </message>
     <message id="settings-title">
         <source>Settings</source>
-        <extracomment>settings tab title</extracomment>
         <translation>Настройки</translation>
     </message>
     <message id="cant-send-to-expired-message">
@@ -801,13 +800,12 @@
         <translation>Невозможно запустить приложение. Проверьте путь к данным кошелька.</translation>
     </message>
     <message id="loading-view-download-blocks">
-        <source>Downloading new blocks</source>
-        <oldsource>Downloading blocks</oldsource>
-        <translation>Загрузка новых блоков</translation>
+        <source>Synching with blockchain</source>
+        <translation>Синхронизация с блокчейном</translation>
     </message>
     <message id="loading-view-scaning-utxo">
-        <source>Scanning new blocks %d/%d</source>
-        <translation>Сканирование новых блоков %d/%d</translation>
+        <source>Loading wallet data %d/%d</source>
+        <translation>Загрузка данных кошелька %d/%d</translation>
     </message>
     <message id="loading-view-protocol-error">
         <source>Incompatible peer</source>
@@ -1553,8 +1551,8 @@ Update your settings and try again.</oldsource>
         <translation type="unfinished"></translation>
     </message>
     <message id="loading-view-rebuild-utxos">
-        <source>Scanning existing blocks</source>
-        <translation>Сканирование существующих блоков</translation>
+        <source>Rebuilding wallet data</source>
+        <translation>Перестройка данных кошелька</translation>
     </message>
     <message id="wallet-receive-copy-token">
         <source>copy transaction token</source>
@@ -1632,6 +1630,26 @@ you do not send large amounts.</oldsource>
     </message>
     <message id="settings-invalid-seed">
         <source>Invalid seed phrase</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message id="wallet-transactions-all-tab">
+        <source>All</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message id="wallet-transactions-in-progress-tab">
+        <source>In progress</source>
+        <translation type="unfinished">В процессе</translation>
+    </message>
+    <message id="wallet-transactions-sent-tab">
+        <source>Sent</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message id="wallet-transactions-received-tab">
+        <source>Received</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message id="settings-see-seed">
+        <source>Click to see seed phrase</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

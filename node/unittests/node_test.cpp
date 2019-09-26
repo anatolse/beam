@@ -883,8 +883,9 @@ namespace beam
 	{
 		NodeProcessor::Horizon horz;
 		horz.m_Branching = 12;
-		horz.m_SchwarzschildHi = 12;
-		horz.m_SchwarzschildLo = 15;
+		horz.m_Sync.Hi = 12;
+		horz.m_Sync.Lo = 15;
+		horz.m_Local = horz.m_Sync;
 
 		size_t nMid = blockChain.size() / 2;
 
@@ -980,8 +981,9 @@ namespace beam
 	{
 		NodeProcessor np, npSrc;
 		np.m_Horizon.m_Branching = 5;
-		np.m_Horizon.m_SchwarzschildHi = 12;
-		np.m_Horizon.m_SchwarzschildLo = 30;
+		np.m_Horizon.m_Sync.Hi = 12;
+		np.m_Horizon.m_Sync.Lo = 30;
+		np.m_Horizon.m_Local = np.m_Horizon.m_Sync;
 		np.Initialize(g_sz);
 		np.OnTreasury(g_Treasury);
 
@@ -1470,8 +1472,9 @@ namespace beam
 		ECC::SetRandom(node);
 
 		node.m_Cfg.m_Horizon.m_Branching = 6;
-		node.m_Cfg.m_Horizon.m_SchwarzschildHi = 10;
-		node.m_Cfg.m_Horizon.m_SchwarzschildLo = 14;
+		node.m_Cfg.m_Horizon.m_Sync.Hi = 10;
+		node.m_Cfg.m_Horizon.m_Sync.Lo = 14;
+		node.m_Cfg.m_Horizon.m_Local = node.m_Cfg.m_Horizon.m_Sync;
 		node.m_Cfg.m_VerificationThreads = -1;
 
 		node.m_Cfg.m_Dandelion.m_AggregationTime_ms = 0;
@@ -2088,6 +2091,7 @@ namespace beam
 		{
 			io::Timer::Ptr m_pTimer;
 
+			bool m_bRunning;
 			bool m_bTip;
 			Height m_hRolledTo;
 			uint32_t m_nProofsExpected;
@@ -2113,8 +2117,11 @@ namespace beam
 
 			void MaybeStop()
 			{
-				if (m_bTip && !m_nProofsExpected && m_bBbsReceived)
+				if (m_bRunning && m_bTip && !m_nProofsExpected && m_bBbsReceived)
+				{
 					io::Reactor::get_Current().stop();
+					m_bRunning = false;
+				}
 			}
 
 			virtual void OnRolledBack() override
@@ -2194,6 +2201,7 @@ namespace beam
 				net.BbsSubscribe(m_LastBbsChannel, 0, this);
 
 				SetTimer(90 * 1000);
+				m_bRunning = true;
 				io::Reactor::get_Current().run();
 				KillTimer();
 			}
@@ -2283,7 +2291,7 @@ int main()
 
 	beam::Rules::get().AllowPublicUtxos = true;
 	beam::Rules::get().FakePoW = true;
-	beam::Rules::get().Macroblock.MaxRollback = 10;
+	beam::Rules::get().MaxRollback = 10;
 	beam::Rules::get().DA.WindowWork = 35;
 	beam::Rules::get().Maturity.Coinbase = 35; // lowered to see more txs
 	beam::Rules::get().Emission.Drop0 = 5;
