@@ -1623,7 +1623,7 @@ bool NodeProcessor::HandleBlock(const NodeDB::StateID& sid, MultiblockContext& m
 			// make sure no spent txos above the requested h0
 			for (size_t i = 0; i < block.m_vInputs.size(); i++)
 			{
-				if (block.m_vInputs[i]->m_ID >= mbc.m_id0)
+				if (block.m_vInputs[i]->m_Internal.m_ID >= mbc.m_id0)
 				{
 					LOG_WARNING() << LogSid(m_DB, sid) << " Invalid input in sparse block";
 					bOk = false;
@@ -1664,9 +1664,9 @@ bool NodeProcessor::HandleBlock(const NodeDB::StateID& sid, MultiblockContext& m
 		for (size_t i = 0; i < block.m_vInputs.size(); i++)
 		{
 			const Input& x = *block.m_vInputs[i];
-			m_DB.TxoSetSpent(x.m_ID, sid.m_Height);
+			m_DB.TxoSetSpent(x.m_Internal.m_ID, sid.m_Height);
 
-			v[i].Set(x.m_ID, x.m_Commitment);
+			v[i].Set(x.m_Internal.m_ID, x.m_Commitment);
 		}
 
 		if (!v.empty())
@@ -1974,7 +1974,7 @@ bool NodeProcessor::HandleBlockElement(const Input& v, Height h, const Height* p
 		if (!pHMax)
 		{
 			Cast::NotConst(v).m_Maturity = d.m_Maturity;
-			Cast::NotConst(v).m_ID = nID;
+			Cast::NotConst(v).m_Internal.m_ID = nID;
 		}
 	} else
 	{
@@ -1987,10 +1987,10 @@ bool NodeProcessor::HandleBlockElement(const Input& v, Height h, const Height* p
 		p = m_Utxos.Find(cu, key, bCreate);
 
 		if (bCreate)
-			p->m_ID = v.m_ID;
+			p->m_ID = v.m_Internal.m_ID;
 		else
 		{
-			m_Utxos.PushID(v.m_ID, *p);
+			m_Utxos.PushID(v.m_Internal.m_ID, *p);
 			cu.InvalidateElement();
 			m_Utxos.OnDirty();
 		}
@@ -2077,7 +2077,7 @@ void NodeProcessor::ToInputWithMaturity(Input& inp, TxoID id)
 	der & outp;
 
 	inp.m_Commitment = outp.m_Commitment;
-	inp.m_ID = id;
+	inp.m_Internal.m_ID = id;
 
 	NodeDB::StateID sidPrev;
 	m_DB.FindStateByTxoID(sidPrev, id); // relatively heavy operation: search for the original txo height
@@ -2956,298 +2956,6 @@ void NodeProcessor::ExtractBlockWithExtra(Block::Body& block, const NodeDB::Stat
 	}
 
 	block.NormalizeP();
-}
-
-void NodeProcessor::SquashOnce(std::vector<Block::Body>& v)
-{
-	assert(v.size() >= 2);
-
-	Block::Body& trg = v[v.size() - 2];
-	const Block::Body& src0 = v.back();
-	Block::Body src1 = std::move(trg);
-
-	trg.Merge(src0);
-
-	bool bStop = false;
-	TxVectors::Writer(trg, trg).Combine(src0.get_Reader(), src1.get_Reader(), bStop);
-
-	v.pop_back();
-}
-
-void NodeProcessor::ExportMacroBlock(Block::BodyBase::IMacroWriter& w, const HeightRange& hr)
-{
-	assert(hr.m_Min <= hr.m_Max);
-	NodeDB::StateID sid;
-	sid.m_Row = FindActiveAtStrict(hr.m_Max);
-	sid.m_Height = hr.m_Max;
-
-	std::vector<Block::Body> vBlocks;
-
-	for (uint32_t i = 0; ; i++)
-	{
-		vBlocks.resize(vBlocks.size() + 1);
-		ExtractBlockWithExtra(vBlocks.back(), sid);
-
-		if (hr.m_Min == sid.m_Height)
-			break;
-
-		if (!m_DB.get_Prev(sid))
-			OnCorrupted();
-
-		for (uint32_t j = i; 1 & j; j >>= 1)
-			SquashOnce(vBlocks);
-	}
-
-	while (vBlocks.size() > 1)
-		SquashOnce(vBlocks);
-
-	std::vector<Block::SystemState::Sequence::Element> vElem;
-	Block::SystemState::Sequence::Prefix prefix;
-	ExportHdrRange(hr, prefix, vElem);
-
-	w.put_Start(vBlocks[0], prefix);
-
-	for (size_t i = 0; i < vElem.size(); i++)
-		w.put_NextHdr(vElem[i]);
-
-	w.Dump(vBlocks[0].get_Reader());
-}
-
-void NodeProcessor::ExportHdrRange(const HeightRange& hr, Block::SystemState::Sequence::Prefix& prefix, std::vector<Block::SystemState::Sequence::Element>& v)
-{
-	if (hr.m_Min > hr.m_Max) // can happen for empty range
-		ZeroObject(prefix);
-	else
-	{
-		v.resize(hr.m_Max - hr.m_Min + 1);
-
-		NodeDB::StateID sid;
-		sid.m_Row = FindActiveAtStrict(hr.m_Max);
-		sid.m_Height = hr.m_Max;
-
-		while (true)
-		{
-			Block::SystemState::Full s;
-			m_DB.get_State(sid.m_Row, s);
-
-			v[sid.m_Height - hr.m_Min] = s;
-
-			if (sid.m_Height == hr.m_Min)
-			{
-				prefix = s;
-				break;
-			}
-
-			if (!m_DB.get_Prev(sid))
-				OnCorrupted();
-		}
-	}
-}
-
-bool NodeProcessor::ImportMacroBlock(Block::BodyBase::IMacroReader& r)
-{
-	if (!ImportMacroBlockInternal(r))
-		return false;
-
-	TryGoUp();
-	return true;
-}
-
-bool NodeProcessor::ImportMacroBlockInternal(Block::BodyBase::IMacroReader& r)
-{
-	Block::BodyBase body;
-	Block::SystemState::Full s;
-	Block::SystemState::ID id;
-
-	r.Reset();
-	r.get_Start(body, s);
-
-	id.m_Height = s.m_Height - 1;
-	id.m_Hash = s.m_Prev;
-
-	if ((m_Cursor.m_ID.m_Height + 1 != s.m_Height) || (m_Cursor.m_ID.m_Hash != s.m_Prev))
-	{
-		LOG_WARNING() << "Incompatible state for import. My Tip: " << m_Cursor.m_ID << ", Macroblock starts at " << id;
-		return false; // incompatible beginning state
-	}
-
-	if (r.m_pKernel && r.m_pKernel->m_Maturity < s.m_Height)
-	{
-		LOG_WARNING() << "Kernel maturity OOB";
-		return false; // incompatible beginning state
-	}
-
-	Merkle::CompactMmr cmmr, cmmrKrn;
-	if (m_Cursor.m_ID.m_Height > Rules::HeightGenesis)
-	{
-		Merkle::ProofBuilderHard bld;
-		m_DB.get_Proof(bld, m_Cursor.m_Sid, m_Cursor.m_Sid.m_Height - 1);
-
-		cmmr.m_vNodes.swap(bld.m_Proof);
-		std::reverse(cmmr.m_vNodes.begin(), cmmr.m_vNodes.end());
-		cmmr.m_Count = m_Cursor.m_Sid.m_Height - 1 - Rules::HeightGenesis;
-
-		cmmr.Append(m_Cursor.m_Full.m_Prev);
-	}
-
-	LOG_INFO() << "Verifying headers...";
-
-	for (bool bFirstTime = true ; r.get_NextHdr(s); s.NextPrefix())
-	{
-		// Difficulty check?!
-
-		if (bFirstTime)
-		{
-			bFirstTime = false;
-
-			Difficulty::Raw wrk = m_Cursor.m_Full.m_ChainWork + s.m_PoW.m_Difficulty;
-
-			if (wrk != s.m_ChainWork)
-			{
-				LOG_WARNING() << id << " Chainwork expected=" << wrk << ", actual=" << s.m_ChainWork;
-				return false;
-			}
-		}
-		else
-			s.m_ChainWork += s.m_PoW.m_Difficulty;
-
-		if (id.m_Height >= Rules::HeightGenesis)
-			cmmr.Append(id.m_Hash);
-
-		switch (OnStateInternal(s, id, false))
-		{
-		case DataStatus::Invalid:
-		{
-			LOG_WARNING() << "Invald header encountered: " << id;
-			return false;
-		}
-
-		case DataStatus::Accepted:
-			m_DB.InsertState(s);
-
-		default: // suppress the warning of not handling all the enum values
-			break;
-		}
-
-		// verify kernel commitment
-		cmmrKrn.m_Count = 0;
-		cmmrKrn.m_vNodes.clear();
-
-		// don't care if kernels are out-of-order, this will be handled during the context-free validation.
-		for (; r.m_pKernel && (r.m_pKernel->m_Maturity == s.m_Height); r.NextKernel())
-		{
-			Merkle::Hash hv;
-			r.m_pKernel->get_ID(hv);
-			cmmrKrn.Append(hv);
-		}
-
-		Merkle::Hash hv;
-		cmmrKrn.get_Hash(hv);
-
-		if (s.m_Kernels != hv)
-		{
-			LOG_WARNING() << id << " Kernel commitment mismatch";
-			return false;
-		}
-	}
-
-	if (r.m_pKernel)
-	{
-		LOG_WARNING() << "Kernel maturity OOB";
-		return false;
-	}
-
-	LOG_INFO() << "Context-free validation...";
-
-	if (!VerifyBlock(body, std::move(r), HeightRange(m_Cursor.m_ID.m_Height + 1, id.m_Height)))
-	{
-		LOG_WARNING() << "Context-free verification failed";
-		return false;
-	}
-
-	LOG_INFO() << "Applying macroblock...";
-
-	if (!HandleValidatedBlock(std::move(r), body, m_Cursor.m_ID.m_Height + 1, true, &id.m_Height))
-	{
-		LOG_WARNING() << "Invalid in its context";
-		return false;
-	}
-
-	// evaluate the Definition
-	Merkle::Hash hvDef, hv;
-	cmmr.get_Hash(hv);
-	get_Definition(hvDef, hv);
-
-	if (s.m_Definition != hvDef)
-	{
-		LOG_WARNING() << "Definition mismatch";
-
-        BEAM_VERIFY(HandleValidatedBlock(std::move(r), body, m_Cursor.m_ID.m_Height + 1, false, &id.m_Height));
-
-		return false;
-	}
-
-	// Update DB state flags and cursor. This will also buils the MMR for prev states
-	LOG_INFO() << "Building auxilliary datas...";
-
-	TxVectors::Full txv;
-	TxVectors::Writer txwr(txv, txv);
-	ByteBuffer bbE;
-
-	r.Reset();
-	r.get_Start(body, s);
-	for (bool bFirstTime = true; r.get_NextHdr(s); s.NextPrefix())
-	{
-		if (bFirstTime)
-			bFirstTime = false;
-		else
-			s.m_ChainWork += s.m_PoW.m_Difficulty;
-
-		s.get_ID(id);
-
-		NodeDB::StateID sid;
-		sid.m_Row = m_DB.StateFindSafe(id);
-		if (!sid.m_Row)
-			OnCorrupted();
-
-		m_DB.SetStateFunctional(sid.m_Row);
-
-		m_DB.DelStateBlockPP(sid.m_Row); // if somehow it was downloaded
-
-		txv.m_vKernels.clear();
-		bbE.clear();
-
-		for (; r.m_pKernel && (r.m_pKernel->m_Maturity == s.m_Height); r.NextKernel())
-		{
-			txwr.Write(*r.m_pKernel);
-
-			r.m_pKernel->get_ID(hv);
-			m_DB.InsertKernel(hv, r.m_pKernel->m_Maturity);
-		}
-
-		Serializer ser;
-		ser.swap_buf(bbE);
-		ser & Cast::Down<TxVectors::Eternal>(txv);
-		ser.swap_buf(bbE);
-
-		Blob bEmpty(nullptr, 0);
-		m_DB.SetStateBlock(sid.m_Row, bEmpty, bbE);
-
-		sid.m_Height = id.m_Height;
-		m_DB.MoveFwd(sid);
-	}
-
-	m_Extra.m_TxoHi = m_Extra.m_TxoLo = id.m_Height;
-
-	m_DB.ParamSet(NodeDB::ParamID::HeightTxoLo, &id.m_Height, NULL);
-	m_DB.ParamSet(NodeDB::ParamID::HeightTxoHi, &id.m_Height, NULL);
-
-	InitCursor();
-	RescanOwnedTxos();
-
-	LOG_INFO() << "Macroblock import succeeded";
-
-	return true;
 }
 
 TxoID NodeProcessor::get_TxosBefore(Height h)
