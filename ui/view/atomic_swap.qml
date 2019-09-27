@@ -82,7 +82,9 @@ Item {
                     font.capitalization: Font.AllUppercase
 
                     onClicked: {
-                        // todo
+                        offersStackView.push(Qt.createComponent("send.qml"));
+                        atomicSwapLayout.state = "transactions";
+                        transactionsTab.state = "filterInProgressTransactions";
                     }
                 }
                 
@@ -290,9 +292,6 @@ Item {
                             id: sendReceiveBeamSwitch
                             Layout.alignment: Qt.AlignHCenter | Qt.AlignLeft
                             opacity: 0.6
-                            onClicked: {
-                                console.log("todo: send/receive switch pressed");
-                            }
                         }
 
                         SFText {
@@ -360,7 +359,7 @@ Item {
                         Layout.topMargin: 14
 
                         property int rowHeight: 56
-                        property int columnWidth: (width - 66) / 6
+                        property int columnWidth: (width - swapCoinsColumn.width) / 6
 
                         frameVisible: false
                         selectionMode: SelectionMode.NoSelection
@@ -412,10 +411,37 @@ Item {
                         }
 
                         TableViewColumn {
-                            // role: ""
-                            width: 66
+                            id: swapCoinsColumn
+                            role: "swapCoin"
+                            width: 55
                             movable: false
                             resizable: false
+                            elideMode: Text.ElideRight
+                            delegate: Item {
+                                id: coinLabels
+                                width: parent.width
+                                height: transactionsTable.rowHeight
+                                property var swapCoin: styleData.value
+                                property var isSendBeam: transactionsTable.model.get(styleData.row).isBeamSide
+                                
+                                anchors.fill: parent
+                                anchors.leftMargin: 20
+                                anchors.rightMargin: 20
+                                anchors.topMargin: 18
+
+                                RowLayout {
+                                    layoutDirection: Qt.RightToLeft
+                                    spacing: -4
+                                    SvgImage {
+                                        sourceSize: Qt.size(20, 20)
+                                        source: isSendBeam ? "qrc:/assets/icon-beam.svg" : getCoinIcon(swapCoin)
+                                    }
+                                    SvgImage {
+                                        sourceSize: Qt.size(20, 20)
+                                        source: isSendBeam ? getCoinIcon(swapCoin) : "qrc:/assets/icon-beam.svg"
+                                    }
+                                }
+                            }
                         }
 
                         TableViewColumn {
@@ -585,7 +611,7 @@ Item {
                         Layout.topMargin: 12
 
                         property int rowHeight: 56
-                        property int columnWidth: (width - 95) / 6
+                        property int columnWidth: (width - txSwapCoinsColumn.width - 40) / 6
 
                         frameVisible: false
                         selectionMode: SelectionMode.NoSelection
@@ -716,7 +742,6 @@ Item {
                                     }
                                     if (mouse.button === Qt.RightButton )
                                     {
-                                        txContextMenu.address = transactionsTable.model.get(styleData.row).addressTo;
                                         txContextMenu.cancelEnabled = transactionsTable.model.get(styleData.row).isCancelAvailable;
                                         txContextMenu.deleteEnabled = transactionsTable.model.get(styleData.row).isDeleteAvailable;
                                         txContextMenu.txID = transactionsTable.model.get(styleData.row).rawTxID;
@@ -797,6 +822,7 @@ Item {
                         }
 
                         TableViewColumn {
+                            id: txSwapCoinsColumn
                             role: "swapCoin"
                             width: 55
                             movable: false
@@ -809,25 +835,25 @@ Item {
                                 property var swapCoin: styleData.value
                                 property var isSendBeam: transactionsTable.model.get(styleData.row).isBeamSideSwap
                                 
-                                    anchors.fill: parent
-                                    anchors.leftMargin: 20
-                                    anchors.rightMargin: 20
-                                    anchors.topMargin: 18
+                                anchors.fill: parent
+                                anchors.leftMargin: 20
+                                anchors.rightMargin: 20
+                                anchors.topMargin: 18
 
-                                    RowLayout {
-                                        layoutDirection: Qt.RightToLeft
-                                        spacing: -4
-                                        SvgImage {
-                                            sourceSize: Qt.size(20, 20)
-                                            source: isSendBeam ? getCoinIcon(swapCoin) : "qrc:/assets/icon-beam.svg"
-                                        }
-                                        SvgImage {
-                                            sourceSize: Qt.size(20, 20)
-                                            source: isSendBeam ? "qrc:/assets/icon-beam.svg" : getCoinIcon(swapCoin)
-                                        }
+                                RowLayout {
+                                    layoutDirection: Qt.RightToLeft
+                                    spacing: -4
+                                    SvgImage {
+                                        sourceSize: Qt.size(20, 20)
+                                        source: isSendBeam ? getCoinIcon(swapCoin) : "qrc:/assets/icon-beam.svg"
+                                    }
+                                    SvgImage {
+                                        sourceSize: Qt.size(20, 20)
+                                        source: isSendBeam ? "qrc:/assets/icon-beam.svg" : getCoinIcon(swapCoin)
                                     }
                                 }
                             }
+                        }
 
                         TableViewColumn {
                             role: "timeCreated"
@@ -872,6 +898,7 @@ Item {
                                         text: (styleData.value === '' ? '' : '-') + styleData.value
                                         fontWeight: Font.Bold
                                         color: Style.accent_outgoing
+                                        onCopyText: BeamGlobals.copyToClipboard(Utils.getAmountWithoutCurrency(styleData.value)) 
                                     }
                                 }
                             }
@@ -889,9 +916,10 @@ Item {
                                     width: parent.width
                                     height: transactionsTable.rowHeight
                                     TableItem {
-                                        text: (styleData.value === '' ? '' : '-') + styleData.value
+                                        text: (styleData.value === '' ? '' : '+') + styleData.value
                                         fontWeight: Font.Bold
                                         color: Style.accent_incoming
+                                        onCopyText: BeamGlobals.copyToClipboard(Utils.getAmountWithoutCurrency(styleData.value)) 
                                     }
                                 }
                             }
@@ -981,7 +1009,6 @@ Item {
                                             //% "Actions"
                                             ToolTip.text: qsTrId("general-actions")
                                             onClicked: {
-                                                txContextMenu.address = transactionsTable.model.get(styleData.row).addressTo;
                                                 txContextMenu.cancelEnabled = transactionsTable.model.get(styleData.row).isCancelAvailable;
                                                 txContextMenu.deleteEnabled = transactionsTable.model.get(styleData.row).isDeleteAvailable;
                                                 txContextMenu.txID = transactionsTable.model.get(styleData.row).rawTxID;
@@ -1000,16 +1027,8 @@ Item {
                         dim: false
                         property bool cancelEnabled
                         property bool deleteEnabled
-                        property var address
                         property var txID
-                        Action {
-                            //% "Copy address"
-                            text: qsTrId("wallet-txs-copy-addr-cm")
-                            icon.source: "qrc:/assets/icon-copy.svg"
-                            onTriggered: {
-                                BeamGlobals.copyToClipboard(txContextMenu.address);
-                            }
-                        }
+
                         Action {
                             //% "Cancel"
                             text: qsTrId("general-cancel")

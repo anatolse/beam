@@ -51,14 +51,14 @@ class NodeProcessor
 	bool HandleTreasury(const Blob&);
 
 	bool HandleBlock(const NodeDB::StateID&, MultiblockContext&);
-	bool HandleValidatedTx(TxBase::IReader&&, Height, bool bFwd, const Height* = NULL);
-	bool HandleValidatedBlock(TxBase::IReader&&, const Block::BodyBase&, Height, bool bFwd, const Height* = NULL);
-	bool HandleBlockElement(const Input&, Height, const Height*, bool bFwd);
-	bool HandleBlockElement(const Output&, Height, const Height*, bool bFwd);
+	bool HandleValidatedTx(TxBase::IReader&&, Height, bool bFwd);
+	bool HandleValidatedBlock(TxBase::IReader&&, const Block::BodyBase&, Height, bool bFwd);
+	bool HandleBlockElement(const Input&, Height, bool bFwd);
+	bool HandleBlockElement(const Output&, Height, bool bFwd);
 
-	void RecognizeUtxos(TxBase::IReader&&, Height hMax);
+	void RecognizeUtxos(TxBase::IReader&&, Height h);
 
-	static uint64_t ProcessKrnMmr(Merkle::Mmr&, TxBase::IReader&&, Height, const Merkle::Hash& idKrn, TxKernel::Ptr* ppRes);
+	static uint64_t ProcessKrnMmr(Merkle::Mmr&, TxBase::IReader&&, const Merkle::Hash& idKrn, TxKernel::Ptr* ppRes);
 
 	static const uint32_t s_TxoNakedMin = sizeof(ECC::Point); // minimal output size - commitment
 	static const uint32_t s_TxoNakedMax = s_TxoNakedMin + 0x10; // In case the output has the Incubation period - extra size is needed (actually less than this).
@@ -272,7 +272,7 @@ public:
 	};
 	virtual bool EnumViewerKeys(IKeyWalker&) { return true; }
 
-	bool Recover(Key::IDV&, const Output&, Height hMax);
+	bool Recover(Key::IDV&, const Output&, Height h);
 
 	void RescanOwnedTxos();
 
@@ -357,7 +357,7 @@ public:
 	};
 #pragma pack (pop)
 
-	virtual void OnUtxoEvent(const UtxoEvent::Value&) {}
+	virtual void OnUtxoEvent(const UtxoEvent::Value&, Height) {}
 	virtual void OnDummy(const Key::ID&, Height) {}
 
 	static bool IsDummy(const Key::IDV&);
