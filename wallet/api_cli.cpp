@@ -432,8 +432,8 @@ namespace
                         return;
                     }
 
-                    
-                    auto txId = _wallet.StartTransaction(CreateSimpleTransactionParameters()
+                    auto txId = _wallet.StartTransaction(CreateTransactionParameters(TxType::Simple, data.txId ? *data.txId : GenerateTxID())
+                        .SetParameter(TxParameterID::TransactionType, TxType::Simple)
                         .SetParameter(TxParameterID::MyID, from)
                         .SetParameter(TxParameterID::PeerID, data.address)
                         .SetParameter(TxParameterID::Amount, data.value)
@@ -625,6 +625,13 @@ namespace
                 response.maturing = totals.Maturing;
 
                 doResponse(id, response);
+            }
+
+            void onMessage(const JsonRpcId& id, const GenerateTxId& data) override
+            {
+                LOG_DEBUG() << "GenerateTxId(id = " << id << ")";
+
+                doResponse(id, GenerateTxId::Response{ wallet::GenerateTxID() });
             }
 
             void onMessage(const JsonRpcId& id, const Lock& data) override

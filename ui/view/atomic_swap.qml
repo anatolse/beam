@@ -61,7 +61,7 @@ Item {
             id: atomicSwapLayout
             Layout.fillWidth: true
             Layout.fillHeight: true
-
+            spacing: 0
             state: "offers"
 
             RowLayout {
@@ -72,14 +72,15 @@ Item {
                 CustomButton {
                     id: acceptOfferButton
                     Layout.minimumWidth: 172
-                    Layout.minimumHeight: 32
+                    Layout.preferredHeight: 32
+                    Layout.maximumHeight: 32
                     palette.button: Style.accent_outgoing
                     palette.buttonText: Style.content_opposite
-                    icon.source: "qrc:/assets/icon-receive-blue.svg"
+                    icon.source: "qrc:/assets/icon-accept-offer.svg"
                     //% "Accept offer"
                     text: qsTrId("atomic-swap-accept")
                     font.pixelSize: 12
-                    font.capitalization: Font.AllUppercase
+                    //font.capitalization: Font.AllUppercase
 
                     onClicked: {
                         offersStackView.push(Qt.createComponent("send.qml"));
@@ -91,14 +92,15 @@ Item {
                 CustomButton {
                     id: sendOfferButton
                     Layout.minimumWidth: 172
-                    Layout.minimumHeight: 32
+                    Layout.preferredHeight: 32
+                    Layout.maximumHeight: 32
                     palette.button: Style.accent_incoming
                     palette.buttonText: Style.content_opposite
-                    icon.source: "qrc:/assets/icon-send-blue.svg"
+                    icon.source: "qrc:/assets/icon-create-offer.svg"
                     //% "Create offer"
                     text: qsTrId("atomic-swap-create")
                     font.pixelSize: 12
-                    font.capitalization: Font.AllUppercase
+                    //font.capitalization: Font.AllUppercase
 
                     onClicked: {
                         offersStackView.push(Qt.createComponent("receive.qml"), {"isSwapMode": true});
@@ -108,7 +110,8 @@ Item {
 
             RowLayout {
                 Layout.alignment: Qt.AlignLeft | Qt.AlignTop
-                Layout.topMargin: 30
+                Layout.fillWidth: true
+                Layout.topMargin: 32
                 spacing: 10
 
                 SwapCurrencyAmountPane {
@@ -198,6 +201,7 @@ Item {
                     //% "Connect other currency wallet to start trading"
                     valueStr: qsTrId("atomic-swap-connect-other")
                     textSize: 14
+                    rectOpacity: 1.0
                     textColor: Style.active
                     isOk: true
                     borderSize: 1
@@ -232,7 +236,6 @@ Item {
                 TxFilter {
                     id: offersTabSelector
                     Layout.alignment: Qt.AlignTop
-                    Layout.leftMargin: 7
                     //% "Active offers"
                     label: qsTrId("atomic-swap-active-offers-tab")
                     onClicked: atomicSwapLayout.state = "offers"
@@ -242,7 +245,6 @@ Item {
                 TxFilter {
                     id: transactionsTabSelector
                     Layout.alignment: Qt.AlignTop
-                    Layout.leftMargin: 40
                     //% "Transactions"
                     label: qsTrId("atomic-swap-transactions-tab")
                     onClicked: atomicSwapLayout.state = "transactions"
@@ -283,7 +285,7 @@ Item {
                             Layout.alignment: Qt.AlignHCenter | Qt.AlignLeft
                             font.pixelSize: 14
                             color: Style.content_main
-                            opacity: 0.6
+                            // opacity: 0.6
                             //% "Receive BEAM"
                             text: qsTrId("atomic-swap-receive-beam")
                         }
@@ -291,7 +293,7 @@ Item {
                         CustomSwitch {
                             id: sendReceiveBeamSwitch
                             Layout.alignment: Qt.AlignHCenter | Qt.AlignLeft
-                            opacity: 0.6
+                            // opacity: 0.6
                         }
 
                         SFText {
@@ -299,7 +301,7 @@ Item {
                             Layout.leftMargin: 10
                             font.pixelSize: 14
                             color: Style.content_main
-                            opacity: 0.6
+                            // opacity: 0.6
                             //% "Send BEAM"
                             text: qsTrId("atomic-swap-send-beam")
                         }
@@ -420,9 +422,9 @@ Item {
                             delegate: Item {
                                 id: coinLabels
                                 width: parent.width
-                                height: transactionsTable.rowHeight
+                                height: offersTable.rowHeight
                                 property var swapCoin: styleData.value
-                                property var isSendBeam: transactionsTable.model.get(styleData.row).isBeamSide
+                                property var isSendBeam: offersTable.model.get(styleData.row).isBeamSide
                                 
                                 anchors.fill: parent
                                 anchors.leftMargin: 20
@@ -560,8 +562,6 @@ Item {
 
                         TxFilter {
                             id: allTabSelector
-                            Layout.rightMargin: 40
-                            Layout.leftMargin: 7
                             //% "All"
                             label: qsTrId("atomic-swap-all-transactions-tab")
                             onClicked: transactionsTab.state = "filterAllTransactions"
@@ -598,7 +598,7 @@ Item {
                         State {
                             name: "filterInProgressTransactions"
                             PropertyChanges { target: inProgressTabSelector; state: "active" }
-                            PropertyChanges { target: txProxyModel; filterString: "pending" } // "in progress" state should be
+                            PropertyChanges { target: txProxyModel; filterString: "true" }
                         }
                     ]
 
@@ -628,7 +628,7 @@ Item {
                             sortCaseSensitivity: Qt.CaseInsensitive
                             sortRole: transactionsTable.getColumn(transactionsTable.sortIndicatorColumn).role + "Sort"
 
-                            filterRole: "status"
+                            filterRole: "isInProgress"
                             // filterString: "*"
                             filterSyntax: SortFilterProxyModel.Wildcard
                             filterCaseSensitivity: Qt.CaseInsensitive
@@ -636,7 +636,7 @@ Item {
 
                         rowDelegate: Item {
                             id: rowItem
-                            height: transactionsTable.rowHeight
+                            height: collapsed ? transactionsTable.rowHeight : transactionsTable.rowHeight + txDetails.maximumHeight
                             anchors.left: parent.left
                             anchors.right: parent.right
                             property bool collapsed: true
@@ -674,7 +674,7 @@ Item {
                                         anchors.fill: parent
                                         color: Style.background_details
                                     }
-                                    TransactionDetails {
+                                    SwapTransactionDetails {
                                         id: detailsPanel
                                         width: transactionsTable.width
 
@@ -729,7 +729,7 @@ Item {
                             MouseArea {
                                 anchors.top: parent.top
                                 anchors.left: parent.left
-                                height: rowItem.height
+                                height: transactionsTable.rowHeight
                                 width: parent.width
 
                                 acceptedButtons: Qt.LeftButton | Qt.RightButton

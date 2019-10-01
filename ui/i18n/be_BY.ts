@@ -1656,5 +1656,15 @@ you do not send large amounts.</oldsource>
         <source>Click to see seed phrase</source>
         <translation type="unfinished"></translation>
     </message>
+    <message id="settings-progress-na">
+        <source>You cannot change settings\nwhile active transaction is in progress</source>
+        <oldsource>You cannot change settings
+while active transaction is in progress</oldsource>
+        <translation type="unfinished"></translation>
+    </message>
+    <message id="send-less-than-fee">
+        <source>The swap amount must be greater than the redemption fee.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 </TS>
