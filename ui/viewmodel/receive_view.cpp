@@ -31,7 +31,6 @@ ReceiveViewModel::ReceiveViewModel()
     , _qr(std::make_unique<QR>())
     , _walletModel(*AppModel::getInstance().getWallet())
 {
-    LOG_INFO() << "ReceiveViewModel created";
     connect(_qr.get(), &QR::qrDataChanged, this, &ReceiveViewModel::onReceiverQRChanged);
     connect(&_walletModel, &WalletModel::generatedNewAddress, this, &ReceiveViewModel::onGeneratedNewAddress);
     connect(&_walletModel, &WalletModel::newAddressFailed, this, &ReceiveViewModel::newAddressFailed);
@@ -42,7 +41,6 @@ ReceiveViewModel::ReceiveViewModel()
 ReceiveViewModel::~ReceiveViewModel()
 {
     disconnect(_qr.get(), &QR::qrDataChanged, this, &ReceiveViewModel::onReceiverQRChanged);
-    LOG_INFO() << "ReceiveViewModel destroyed";
 }
 
 void ReceiveViewModel::onGeneratedNewAddress(const beam::wallet::WalletAddress& addr)
@@ -61,7 +59,6 @@ double ReceiveViewModel::getAmountToReceive() const
 
 void ReceiveViewModel::setAmountToReceive(double value)
 {
-    LOG_INFO() << "amount to receive " << value;
     if (value != _amountToReceive)
     {
         _amountToReceive = value;
@@ -73,7 +70,6 @@ void ReceiveViewModel::setAmountToReceive(double value)
 
 void ReceiveViewModel::setAddressExpires(int value)
 {
-    LOG_INFO() << "address expires " << value;
     if (value != _addressExpires)
     {
         _addressExpires = value;
@@ -137,7 +133,6 @@ bool ReceiveViewModel::getCommentValid() const
 
 void ReceiveViewModel::setAddressComment(const QString& value)
 {
-    LOG_INFO() << "address comment " << value.toStdString();
     auto trimmed = value.trimmed();
     if (_addressComment != trimmed)
     {

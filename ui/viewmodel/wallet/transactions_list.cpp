@@ -47,10 +47,15 @@ auto TransactionsList::roleNames() const -> QHash<int, QByteArray>
         { static_cast<int>(Roles::IsIncome), "isIncome" },
         { static_cast<int>(Roles::IsInProgress), "isInProgress" },
         { static_cast<int>(Roles::IsCompleted), "isCompleted" },
+        { static_cast<int>(Roles::IsCanceled), "isCanceled" },
+        { static_cast<int>(Roles::IsFailed), "isFailed" },
+        { static_cast<int>(Roles::IsExpired), "isExpired" },
         { static_cast<int>(Roles::IsBeamSideSwap), "isBeamSideSwap" },
         { static_cast<int>(Roles::HasPaymentProof), "hasPaymentProof" },
         { static_cast<int>(Roles::SwapCoin), "swapCoin" },
-        { static_cast<int>(Roles::RawTxID), "rawTxID" }
+        { static_cast<int>(Roles::RawTxID), "rawTxID" },
+        { static_cast<int>(Roles::Search), "search" },
+        { static_cast<int>(Roles::Token), "token" }
     };
     return roles;
 }
@@ -130,6 +135,15 @@ auto TransactionsList::data(const QModelIndex &index, int role) const -> QVarian
         case Roles::IsCompleted:
             return value->isCompleted();
 
+        case Roles::IsCanceled:
+            return value->isCanceled();
+
+        case Roles::IsFailed:
+            return value->isFailed();
+
+        case Roles::IsExpired:
+            return value->isExpired();
+
         case Roles::IsBeamSideSwap:
             return value->isBeamSideSwap();
 
@@ -141,6 +155,23 @@ auto TransactionsList::data(const QModelIndex &index, int role) const -> QVarian
 
         case Roles::RawTxID:
             return QVariant::fromValue(value->getTxID());
+
+        case Roles::Token:
+            return value->getToken();
+
+        case Roles::Search: 
+        {
+            QString r = value->getTransactionID();
+            r.append(" ");
+            r.append(value->getKernelID());
+            r.append(" ");
+            r.append(value->getAddressFrom());
+            r.append(" ");
+            r.append(value->getAddressTo());
+            r.append(" ");
+            r.append(value->getComment());
+            return r;
+        }
 
         default:
             return QVariant();

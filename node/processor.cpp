@@ -1014,7 +1014,6 @@ void NodeProcessor::TryGoUp()
 	while (true)
 	{
 		NodeDB::StateID sidTrg;
-		Difficulty::Raw wrkTrg;
 
 		{
 			NodeDB::WalkerState ws(m_DB);
@@ -1027,6 +1026,8 @@ void NodeProcessor::TryGoUp()
 			}
 
 			sidTrg = ws.m_Sid;
+
+			Difficulty::Raw wrkTrg;
 			m_DB.get_ChainWork(sidTrg.m_Row, wrkTrg);
 
 			assert(wrkTrg >= m_Cursor.m_Full.m_ChainWork);
@@ -1034,154 +1035,8 @@ void NodeProcessor::TryGoUp()
 				break; // already at maximum (though maybe at different tip)
 		}
 
+		TryGoTo(sidTrg);
 		bDirty = true;
-
-		// Calculate the path
-		std::vector<uint64_t> vPath;
-		while (true)
-		{
-			vPath.push_back(sidTrg.m_Row);
-
-			if (!m_DB.get_Prev(sidTrg))
-			{
-				sidTrg.SetNull();
-				break;
-			}
-
-			if (NodeDB::StateFlags::Active & m_DB.GetStateFlags(sidTrg.m_Row))
-				break;
-		}
-
-		RollbackTo(sidTrg.m_Height);
-
-		MultiblockContext mbc(*this);
-		bool bContextFail = false;
-
-		NodeDB::StateID sidFwd = m_Cursor.m_Sid;
-
-		for (size_t i = vPath.size(); i--; )
-		{
-			sidFwd.m_Height = m_Cursor.m_Sid.m_Height + 1;
-			sidFwd.m_Row = vPath[i];
-
-			if (!HandleBlock(sidFwd, mbc))
-			{
-				bContextFail = mbc.m_bFail = true;
-
-				if (m_Cursor.m_ID.m_Height + 1 == m_SyncData.m_TxoLo)
-					mbc.OnFastSyncFailedOnLo();
-
-				break;
-			}
-
-			m_DB.MoveFwd(sidFwd);
-			InitCursor();
-
-			if (IsFastSync())
-				m_DB.DelStateBlockPP(sidFwd.m_Row); // save space
-
-			if (mbc.m_bFail)
-				break;
-
-			if (mbc.m_InProgress.m_Max == m_SyncData.m_Target.m_Height)
-			{
-				if (!mbc.Flush())
-					break;
-
-				mbc.m_pidLast = Zero; // don't blame the last peer if something goes wrong
-				NodeDB::StateID sidFail;
-				sidFail.SetNull(); // suppress warning
-
-				{
-					// ensure no reduced UTXOs are left
-					NodeDB::WalkerTxo wlk(m_DB);
-					for (m_DB.EnumTxos(wlk, mbc.m_id0); wlk.MoveNext(); )
-					{
-						if (wlk.m_SpendHeight != MaxHeight)
-							continue;
-
-						if (TxoIsNaked(wlk.m_Value))
-						{
-							bContextFail = mbc.m_bFail = true;
-							m_DB.FindStateByTxoID(sidFail, wlk.m_ID);
-							break;
-						}
-					}
-				}
-
-				if (mbc.m_bFail)
-				{
-					LOG_WARNING() << "Fast-sync failed";
-
-					if (!m_DB.get_Peer(sidFail.m_Row, mbc.m_pidLast))
-						mbc.m_pidLast = Zero;
-
-					if (m_SyncData.m_TxoLo > m_SyncData.m_h0)
-					{
-						mbc.OnFastSyncFailed(true);
-					}
-					else
-					{
-						// try to preserve blocks, recover them from the TXOs.
-
-						ByteBuffer bbP, bbE;
-						while (m_Cursor.m_Sid.m_Height > m_SyncData.m_h0)
-						{
-							NodeDB::StateID sid = m_Cursor.m_Sid;
-
-							bbP.clear();
-							if (!GetBlock(sid, &bbE, &bbP, m_SyncData.m_h0, m_SyncData.m_TxoLo, m_SyncData.m_Target.m_Height, true))
-								OnCorrupted();
-
-							if (sidFail.m_Height == sid.m_Height)
-							{
-								bbP.clear();
-								m_DB.SetStateNotFunctional(sid.m_Row);
-							}
-
-							RollbackTo(sid.m_Height - 1);
-
-							m_DB.SetStateBlock(sid.m_Row, bbP, bbE);
-							m_DB.set_StateExtra(sid.m_Row, nullptr);
-							m_DB.set_StateTxos(sid.m_Row, nullptr);
-						}
-
-						mbc.OnFastSyncFailed(false);
-
-						sidFwd = m_Cursor.m_Sid; // don't delete any more blocks
-
-					}
-				}
-				else
-				{
-					LOG_INFO() << "Fast-sync succeeded";
-
-					// raise fossil height, hTxoLo, hTxoHi
-					RaiseFossil(m_Cursor.m_ID.m_Height);
-					RaiseTxoHi(m_Cursor.m_ID.m_Height);
-					RaiseTxoLo(m_SyncData.m_TxoLo);
-
-					ZeroObject(m_SyncData);
-					SaveSyncData();
-				}
-
-
-				if (mbc.m_bFail)
-					break;
-
-			}
-		}
-
-		if (mbc.Flush())
-			break; // at position
-
-		if (!bContextFail)
-			LOG_WARNING() << "Context-free verification failed";
-
-		RollbackTo(mbc.m_InProgress.m_Min - 1);
-
-		DeleteBlocksInRange(sidFwd, m_Cursor.m_Sid.m_Height); // blocks from this peer
-		OnPeerInsane(mbc.m_pidLast);
 	}
 
 	if (bDirty)
@@ -1189,6 +1044,158 @@ void NodeProcessor::TryGoUp()
 		PruneOld();
 		if (m_Cursor.m_Sid.m_Row != rowid)
 			OnNewState();
+	}
+}
+
+void NodeProcessor::TryGoTo(NodeDB::StateID& sidTrg)
+{
+	// Calculate the path
+	std::vector<uint64_t> vPath;
+	while (true)
+	{
+		vPath.push_back(sidTrg.m_Row);
+
+		if (!m_DB.get_Prev(sidTrg))
+		{
+			sidTrg.SetNull();
+			break;
+		}
+
+		if (NodeDB::StateFlags::Active & m_DB.GetStateFlags(sidTrg.m_Row))
+			break;
+	}
+
+	RollbackTo(sidTrg.m_Height);
+
+	MultiblockContext mbc(*this);
+	bool bContextFail = false;
+
+	NodeDB::StateID sidFwd = m_Cursor.m_Sid;
+
+	for (size_t i = vPath.size(); i--; )
+	{
+		sidFwd.m_Height = m_Cursor.m_Sid.m_Height + 1;
+		sidFwd.m_Row = vPath[i];
+
+		if (!HandleBlock(sidFwd, mbc))
+		{
+			bContextFail = mbc.m_bFail = true;
+
+			if (m_Cursor.m_ID.m_Height + 1 == m_SyncData.m_TxoLo)
+				mbc.OnFastSyncFailedOnLo();
+
+			break;
+		}
+
+		m_DB.MoveFwd(sidFwd);
+		InitCursor();
+
+		if (IsFastSync())
+			m_DB.DelStateBlockPP(sidFwd.m_Row); // save space
+
+		if (mbc.m_InProgress.m_Max == m_SyncData.m_Target.m_Height)
+		{
+			if (!mbc.Flush())
+				break;
+
+			OnFastSyncOver(mbc, sidFwd, bContextFail);
+		}
+
+		if (mbc.m_bFail)
+			break;
+	}
+
+	if (mbc.Flush())
+		return; // at position
+
+	if (!bContextFail)
+		LOG_WARNING() << "Context-free verification failed";
+
+	RollbackTo(mbc.m_InProgress.m_Min - 1);
+
+	DeleteBlocksInRange(sidFwd, m_Cursor.m_Sid.m_Height); // blocks from this peer
+	OnPeerInsane(mbc.m_pidLast);
+}
+
+void NodeProcessor::OnFastSyncOver(MultiblockContext& mbc, NodeDB::StateID& sidFwd, bool& bContextFail)
+{
+	assert(mbc.m_InProgress.m_Max == m_SyncData.m_Target.m_Height);
+
+	mbc.m_pidLast = Zero; // don't blame the last peer if something goes wrong
+	NodeDB::StateID sidFail;
+	sidFail.SetNull(); // suppress warning
+
+	{
+		// ensure no reduced UTXOs are left
+		NodeDB::WalkerTxo wlk(m_DB);
+		for (m_DB.EnumTxos(wlk, mbc.m_id0); wlk.MoveNext(); )
+		{
+			if (wlk.m_SpendHeight != MaxHeight)
+				continue;
+
+			if (TxoIsNaked(wlk.m_Value))
+			{
+				bContextFail = mbc.m_bFail = true;
+				m_DB.FindStateByTxoID(sidFail, wlk.m_ID);
+				break;
+			}
+		}
+	}
+
+	if (mbc.m_bFail)
+	{
+		LOG_WARNING() << "Fast-sync failed";
+
+		if (!m_DB.get_Peer(sidFail.m_Row, mbc.m_pidLast))
+			mbc.m_pidLast = Zero;
+
+		if (m_SyncData.m_TxoLo > m_SyncData.m_h0)
+		{
+			mbc.OnFastSyncFailed(true);
+		}
+		else
+		{
+			// try to preserve blocks, recover them from the TXOs.
+
+			ByteBuffer bbP, bbE;
+			while (m_Cursor.m_Sid.m_Height > m_SyncData.m_h0)
+			{
+				NodeDB::StateID sid = m_Cursor.m_Sid;
+
+				bbP.clear();
+				if (!GetBlock(sid, &bbE, &bbP, m_SyncData.m_h0, m_SyncData.m_TxoLo, m_SyncData.m_Target.m_Height, true))
+					OnCorrupted();
+
+				if (sidFail.m_Height == sid.m_Height)
+				{
+					bbP.clear();
+					m_DB.SetStateNotFunctional(sid.m_Row);
+				}
+
+				RollbackTo(sid.m_Height - 1);
+
+				m_DB.SetStateBlock(sid.m_Row, bbP, bbE);
+				m_DB.set_StateExtra(sid.m_Row, nullptr);
+				m_DB.set_StateTxos(sid.m_Row, nullptr);
+			}
+
+			mbc.OnFastSyncFailed(false);
+
+			sidFwd = m_Cursor.m_Sid; // don't delete any more blocks
+
+		}
+	}
+	else
+	{
+		LOG_INFO() << "Fast-sync succeeded";
+
+		// raise fossil height, hTxoLo, hTxoHi
+		RaiseFossil(m_Cursor.m_ID.m_Height);
+		RaiseTxoHi(m_Cursor.m_ID.m_Height);
+		RaiseTxoLo(m_SyncData.m_TxoLo);
+
+		ZeroObject(m_SyncData);
+		SaveSyncData();
 	}
 }
 
@@ -1210,9 +1217,6 @@ Height NodeProcessor::PruneOld()
 {
 	if (IsFastSync())
 		return 0; // don't remove anything while in fast-sync mode
-
-	if (m_Cursor.m_Sid.m_Height < Rules::HeightGenesis)
-		return 0;
 
 	Height hRet = 0;
 
@@ -2898,62 +2902,24 @@ bool NodeProcessor::VerifyBlock(const Block::BodyBase& block, TxBase::IReader&& 
 		ctx.IsValidBlock();
 }
 
-void NodeProcessor::ExtractBlockWithExtra(Block::Body& block, const NodeDB::StateID& sid)
+bool NodeProcessor::ExtractBlockWithExtra(Block::Body& block, const NodeDB::StateID& sid)
 {
 	ByteBuffer bbE;
-	m_DB.GetStateBlock(sid.m_Row, nullptr, &bbE);
+	if (!GetBlockInternal(sid, &bbE, nullptr, 0, 0, 0, false, &block))
+		return false;
 
 	Deserializer der;
 	der.reset(bbE);
 	der & Cast::Down<TxVectors::Eternal>(block);
 
-	TxoID id0;
-	TxoID id1 = m_DB.get_StateTxos(sid.m_Row);
-
-	if (!m_DB.get_StateExtra(sid.m_Row, block.m_Offset))
-		OnCorrupted();
-
-	uint64_t rowid = sid.m_Row;
-	if (m_DB.get_Prev(rowid))
+	// Set maturity to inputs
+	for (size_t i = 0; i < block.m_vInputs.size(); i++)
 	{
-		AdjustOffset(block.m_Offset, rowid, false);
-		id0 = m_DB.get_StateTxos(rowid);
-	}
-	else
-		id0 = m_Extra.m_TxosTreasury;
-
-	// inputs
-	NodeDB::WalkerTxo wlk(m_DB);
-
-	std::vector<NodeDB::StateInput> v;
-	m_DB.get_StateInputs(sid.m_Row, v);
-
-	for (size_t i = 0; i < v.size(); i++)
-	{
-		TxoID id = v[i].get_ID();
-
-		block.m_vInputs.emplace_back();
-		Input::Ptr& pInp = block.m_vInputs.back();
-		pInp.reset(new Input);
-
-		ToInputWithMaturity(*pInp, id);
+		Input& inp = *block.m_vInputs[i];
+		ToInputWithMaturity(inp, inp.m_Internal.m_ID);
 	}
 
-	// outputs
-	for (m_DB.EnumTxos(wlk, id0); wlk.MoveNext(); )
-	{
-		if (wlk.m_ID >= id1)
-			break;
-
-		block.m_vOutputs.emplace_back();
-		Output::Ptr& pOutp = block.m_vOutputs.back();
-		pOutp.reset(new Output);
-
-		der.reset(wlk.m_Value.p, wlk.m_Value.n);
-		der & *pOutp;
-	}
-
-	block.NormalizeP();
+	return true;
 }
 
 TxoID NodeProcessor::get_TxosBefore(Height h)
@@ -3117,6 +3083,11 @@ void NodeProcessor::InitializeUtxos()
 
 bool NodeProcessor::GetBlock(const NodeDB::StateID& sid, ByteBuffer* pEthernal, ByteBuffer* pPerishable, Height h0, Height hLo1, Height hHi1, bool bActive)
 {
+	return GetBlockInternal(sid, pEthernal, pPerishable, h0, hLo1, hHi1, bActive, nullptr);
+}
+
+bool NodeProcessor::GetBlockInternal(const NodeDB::StateID& sid, ByteBuffer* pEthernal, ByteBuffer* pPerishable, Height h0, Height hLo1, Height hHi1, bool bActive, Block::Body* pBody)
+{
 	// h0 - current peer Height
 	// hLo1 - HorizonLo that peer needs after the sync
 	// hHi1 - HorizonL1 that peer needs after the sync
@@ -3149,10 +3120,10 @@ bool NodeProcessor::GetBlock(const NodeDB::StateID& sid, ByteBuffer* pEthernal, 
 	if (IsFastSync() && (sid.m_Height > m_Cursor.m_ID.m_Height))
 		return false;
 
-	bool bFullBlock = (sid.m_Height >= hHi1) && (sid.m_Height > hLo1);
+	bool bFullBlock = (sid.m_Height >= hHi1) && (sid.m_Height > hLo1) && !pBody;
 	m_DB.GetStateBlock(sid.m_Row, bFullBlock ? pPerishable : nullptr, pEthernal);
 
-	if (!(pPerishable && pPerishable->empty()))
+	if (!pBody && !(pPerishable && pPerishable->empty()))
 		return true;
 
 	// re-create it from Txos
@@ -3179,9 +3150,12 @@ bool NodeProcessor::GetBlock(const NodeDB::StateID& sid, ByteBuffer* pEthernal, 
 		id0 = m_Extra.m_TxosTreasury;
 
 	Serializer ser;
-	ser & txb;
+	if (pBody)
+		Cast::Down<TxBase>(*pBody) = std::move(txb);
+	else
+		ser & txb;
 
-	uintBigFor<uint32_t>::Type nCount;
+	uint32_t nCount = 0;
 
 	// inputs
 	std::vector<NodeDB::StateInput> v;
@@ -3189,8 +3163,6 @@ bool NodeProcessor::GetBlock(const NodeDB::StateID& sid, ByteBuffer* pEthernal, 
 
 	for (uint32_t iCycle = 0; ; iCycle++)
 	{
-		nCount = Zero;
-
 		for (size_t i = 0; i < v.size(); i++)
 		{
 			TxoID id = v[i].get_ID();
@@ -3202,26 +3174,44 @@ bool NodeProcessor::GetBlock(const NodeDB::StateID& sid, ByteBuffer* pEthernal, 
 			{
 				if (iCycle)
 				{
-					// write
-					Input inp;
-					v[i].Get(inp.m_Commitment);
-					ser & inp;
-				}
+					const NodeDB::StateInput& si = v[i];
 
-				nCount.Inc();
+					if (pBody)
+					{
+						Input::Ptr& pInp = pBody->m_vInputs.emplace_back();
+						pInp.reset(new Input);
+						si.Get(pInp->m_Commitment);
+						pInp->m_Internal.m_ID = si.get_ID();
+					}
+					else
+					{
+						// write
+						Input inp;
+						si.Get(inp.m_Commitment);
+						ser & inp;
+					}
+				}
+				else
+					nCount++;
 			}
 		}
 
 		if (iCycle)
 			break;
 
-		ser & nCount;
+		if (pBody)
+			pBody->m_vInputs.reserve(nCount);
+		else
+			ser & uintBigFrom(nCount);
 	}
 
 	ByteBuffer bbBlob;
-	nCount = Zero;
+	nCount = 0;
 
 	// outputs
+	if (pBody)
+		pBody->m_vOutputs.reserve(static_cast<size_t>(id1 - id0 - 1)); // num of original outputs
+
 	NodeDB::WalkerTxo wlk(m_DB);
 	for (m_DB.EnumTxos(wlk, id0); wlk.MoveNext(); )
 	{
@@ -3240,15 +3230,30 @@ bool NodeProcessor::GetBlock(const NodeDB::StateID& sid, ByteBuffer* pEthernal, 
 		if (wlk.m_SpendHeight <= hHi1)
 			TxoToNaked(pNaked, wlk.m_Value);
 
-		nCount.Inc();
+		if (pBody)
+		{
+			Deserializer der;
+			der.reset(wlk.m_Value.p, wlk.m_Value.n);
 
-		const uint8_t* p = reinterpret_cast<const uint8_t*>(wlk.m_Value.p);
-		bbBlob.insert(bbBlob.end(), p, p + wlk.m_Value.n);
+			Output::Ptr& pOutp = pBody->m_vOutputs.emplace_back();
+			pOutp.reset(new Output);
+			der & *pOutp;
+		}
+		else
+		{
+			nCount++;
+
+			const uint8_t* p = reinterpret_cast<const uint8_t*>(wlk.m_Value.p);
+			bbBlob.insert(bbBlob.end(), p, p + wlk.m_Value.n);
+		}
 	}
 
-	ser & nCount;
-	ser.swap_buf(*pPerishable);
-	pPerishable->insert(pPerishable->end(), bbBlob.begin(), bbBlob.end());
+	if (!pBody)
+	{
+		ser & uintBigFrom(nCount);
+		ser.swap_buf(*pPerishable);
+		pPerishable->insert(pPerishable->end(), bbBlob.begin(), bbBlob.end());
+	}
 
 	return true;
 }

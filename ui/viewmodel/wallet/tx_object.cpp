@@ -13,6 +13,7 @@
 // limitations under the License.
 #include "tx_object.h"
 #include "viewmodel/ui_helpers.h"
+#include "wallet/common.h"
 
 using namespace beam;
 using namespace beam::wallet;
@@ -141,8 +142,12 @@ QString TxObject::getSwapAmount(bool sent) const
     if (s)
     {
         auto swapAmount = m_tx.GetParameter<Amount>(TxParameterID::AtomicSwapAmount);
-        auto swapCoin = m_tx.GetParameter<AtomicSwapCoin>(TxParameterID::AtomicSwapCoin);
-        return AmountToString(*swapAmount, beamui::convertSwapCoinToCurrency(*swapCoin));
+        if (swapAmount)
+        {
+            auto swapCoin = m_tx.GetParameter<AtomicSwapCoin>(TxParameterID::AtomicSwapCoin);
+            return AmountToString(*swapAmount, beamui::convertSwapCoinToCurrency(*swapCoin));
+        }
+        return "";
     }
     return getAmount();
 }
@@ -159,7 +164,11 @@ double TxObject::getSwapAmountValue(bool sent) const
     if (s)
     {
         auto swapAmount = m_tx.GetParameter<Amount>(TxParameterID::AtomicSwapAmount);
-        return *swapAmount;
+        if (swapAmount)
+        {
+            return *swapAmount;
+        }
+        return 0.0;
     }
     return m_tx.m_amount;
 }
@@ -337,4 +346,79 @@ bool TxObject::isCompleted() const
 bool TxObject::isSelfTx() const
 {
     return m_tx.m_selfTx;
+}
+
+bool TxObject::isCanceled() const
+{
+    return m_tx.m_status == TxStatus::Canceled;
+}
+
+bool TxObject::isFailed() const
+{
+    return m_tx.m_status == TxStatus::Failed;
+}
+
+bool TxObject::isExpired() const
+{
+    return isFailed() && m_tx.m_failureReason == TxFailureReason::TransactionExpired;
+}
+
+namespace
+{
+    template<typename T>
+    void copyParameter(TxParameterID id, const TxParameters& source, TxParameters& dest)
+    {
+        if (auto p = source.GetParameter<T>(id); p)
+        {
+            dest.SetParameter(id, *p);
+        }
+    }
+
+    void copyParameter(TxParameterID id, const TxParameters& source, TxParameters& dest, bool inverse = false)
+    {
+        if (auto p = source.GetParameter<bool>(id); p)
+        {
+            dest.SetParameter(id, inverse ? !*p : *p);
+        }
+    }
+}
+
+QString TxObject::getToken() const
+{
+    if (m_type != TxType::AtomicSwap)
+    {
+        return "";
+    }
+
+    TxParameters tokenParams(m_tx.m_txId);
+
+    auto isInitiator = m_tx.GetParameter<bool>(TxParameterID::IsInitiator);
+    if (*isInitiator == false) 
+    {
+        if (auto p = m_tx.GetParameter<WalletID>(TxParameterID::MyID); p)
+        {
+            tokenParams.SetParameter(TxParameterID::PeerID, *p);
+        }
+    }
+    else
+    {
+        copyParameter<WalletID>(TxParameterID::PeerID, m_tx, tokenParams);
+    }
+
+    tokenParams.SetParameter(TxParameterID::IsInitiator, true);
+
+    copyParameter(TxParameterID::IsSender, m_tx, tokenParams, !*isInitiator);
+    copyParameter(TxParameterID::AtomicSwapIsBeamSide, m_tx, tokenParams, !*isInitiator);
+
+    tokenParams.SetParameter(beam::wallet::TxParameterID::TransactionType, m_type);
+    copyParameter<Height>(TxParameterID::MinHeight, m_tx, tokenParams);
+    copyParameter<Height>(TxParameterID::PeerResponseTime, m_tx, tokenParams);
+    copyParameter<Timestamp>(TxParameterID::CreateTime, m_tx, tokenParams);
+    copyParameter<Height>(TxParameterID::Lifetime, m_tx, tokenParams);
+
+    copyParameter<Amount>(TxParameterID::Amount, m_tx, tokenParams);
+    copyParameter<Amount>(TxParameterID::AtomicSwapAmount, m_tx, tokenParams);
+    copyParameter<AtomicSwapCoin>(TxParameterID::AtomicSwapCoin, m_tx, tokenParams);
+
+    return QString::fromStdString(std::to_string(tokenParams));
 }

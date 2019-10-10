@@ -19,7 +19,7 @@
 #include "utility/logger.h"
 #include <future>
 #include <boost/filesystem.hpp>
-#include "wallet/local_private_key_keeper.h"
+#include "keykeeper/local_private_key_keeper.h"
 
 namespace beam {
     using namespace wallet;
@@ -190,8 +190,8 @@ void test_offline(bool twoNodes) {
 
     WalletDBObserver senderObserver("AAAAAAAAAAAAAAAAAAAAAA"), receiverObserver("BBBBBBBBBBBBBBBBBBBBBB");
 
-    senderParams.walletDB->subscribe(&senderObserver);
-    receiverParams.walletDB->subscribe(&receiverObserver);
+    senderParams.walletDB->Subscribe(&senderObserver);
+    receiverParams.walletDB->Subscribe(&receiverObserver);
 
     WaitHandle node2WH;
     if (twoNodes) {

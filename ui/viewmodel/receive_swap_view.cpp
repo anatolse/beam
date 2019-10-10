@@ -63,26 +63,15 @@ ReceiveSwapViewModel::ReceiveSwapViewModel()
         .SetParameter(beam::wallet::TxParameterID::AtomicSwapCoin, beam::wallet::AtomicSwapCoin::Bitcoin)
         .SetParameter(beam::wallet::TxParameterID::AtomicSwapIsBeamSide, true)
         .SetParameter(beam::wallet::TxParameterID::IsInitiator, true))
-    , _currentHeight(0)
 {
-    LOG_INFO() << "ReceiveSwapViewModel created";
     connect(&_walletModel, &WalletModel::generatedNewAddress, this, &ReceiveSwapViewModel::onGeneratedNewAddress);
-    connect(&_walletModel, &WalletModel::newAddressFailed, this,  &ReceiveSwapViewModel::onNewAddressFailed);
-    connect(&_walletModel, SIGNAL(walletStatus(const beam::wallet::WalletStatus&)), SLOT(onWalletStatus(const beam::wallet::WalletStatus&)));
+    connect(&_walletModel, SIGNAL(newAddressFailed()), this, SIGNAL(newAddressFailed()));
+    connect(&_walletModel, &WalletModel::stateIDChanged, this, &ReceiveSwapViewModel::updateTransactionToken);
+
     generateNewAddress();
 
-    _status.setOnChanged([this]() {
-        emit enoughChanged();
-    });
-
-    _status.refresh();
     _walletModel.getAsync()->getWalletStatus();
     updateTransactionToken();
-}
-
-ReceiveSwapViewModel::~ReceiveSwapViewModel()
-{
-    LOG_INFO() << "ReceiveSwapViewModel destroyed";
 }
 
 void ReceiveSwapViewModel::onGeneratedNewAddress(const beam::wallet::WalletAddress& addr)
@@ -99,7 +88,6 @@ double ReceiveSwapViewModel::getAmountToReceive() const
 
 void ReceiveSwapViewModel::setAmountToReceive(double value)
 {
-    LOG_INFO() << "setAmountToReceive " << value;
     if (value != _amountToReceive)
     {
         _amountToReceive = value;
@@ -120,7 +108,6 @@ int ReceiveSwapViewModel::getReceiveFee() const
 
 void ReceiveSwapViewModel::setAmountSent(double value)
 {
-    LOG_INFO() << "setAmountSent " << value;
     if (value != _amountSent)
     {
         _amountSent = value;
@@ -136,7 +123,6 @@ int ReceiveSwapViewModel::getSentFee() const
 
 void ReceiveSwapViewModel::setSentFee(int value)
 {
-    LOG_INFO() << "setSentFee " << value;
     if (value != _sentFee)
     {
         _sentFee = value;
@@ -153,7 +139,6 @@ Currency ReceiveSwapViewModel::getReceiveCurrency() const
 void ReceiveSwapViewModel::setReceiveCurrency(Currency value)
 {
     assert(value > Currency::CurrStart && value < Currency::CurrEnd);
-    LOG_INFO() << "setReceiveCurrency " << static_cast<int>(value);
 
     if (value != _receiveCurrency)
     {
@@ -170,7 +155,6 @@ Currency ReceiveSwapViewModel::getSentCurrency() const
 void ReceiveSwapViewModel::setSentCurrency(Currency value)
 {
     assert(value > Currency::CurrStart && value < Currency::CurrEnd);
-    LOG_INFO() << "setSentCurrency " << static_cast<int>(value);
 
     if (value != _sentCurrency)
     {
@@ -182,7 +166,6 @@ void ReceiveSwapViewModel::setSentCurrency(Currency value)
 
 void ReceiveSwapViewModel::setReceiveFee(int value)
 {
-    LOG_INFO() << "setReceiveFee " << value;
     if (value != _receiveFee)
     {
         _receiveFee = value;
@@ -198,7 +181,6 @@ int ReceiveSwapViewModel::getOfferExpires() const
 
 void ReceiveSwapViewModel::setOfferExpires(int value)
 {
-    LOG_INFO() << "setOfferExpires " << value;
     if (value != _offerExpires)
     {
         _offerExpires = value;
@@ -219,20 +201,6 @@ void ReceiveSwapViewModel::generateNewAddress()
 
     setAddressComment("");
     _walletModel.getAsync()->generateNewAddress();
-}
-
-void ReceiveSwapViewModel::onNewAddressFailed()
-{
-    emit newAddressFailed();
-}
-
-void ReceiveSwapViewModel::onWalletStatus(const beam::wallet::WalletStatus& status)
-{
-    if (status.stateID.m_Height != _currentHeight)
-    {
-        _currentHeight = status.stateID.m_Height;
-        updateTransactionToken();
-    }
 }
 
 void ReceiveSwapViewModel::setTransactionToken(const QString& value)
@@ -256,7 +224,6 @@ QString ReceiveSwapViewModel::getAddressComment() const
 
 void ReceiveSwapViewModel::setAddressComment(const QString& value)
 {
-    LOG_INFO() << "setAddressComment " << value.toStdString();
     auto trimmed = value.trimmed();
     if (_addressComment != trimmed)
     {
@@ -273,12 +240,15 @@ bool ReceiveSwapViewModel::getCommentValid() const
 
 bool ReceiveSwapViewModel::isEnough() const
 {
+    if (_amountSent == 0)
+        return true;
+
     switch (_sentCurrency)
     {
     case Currency::CurrBeam:
     {
         auto total = std::round(_amountSent * beam::Rules::Coin) + _sentFee;
-        return _status.getAvailable() >= total;
+        return _walletModel.getAvailable() >= total;
     }
     case Currency::CurrBtc:
     {
@@ -372,13 +342,20 @@ void ReceiveSwapViewModel::startListen()
 
 void ReceiveSwapViewModel::publishToken()
 {
-    // using namespace beam::wallet;
-    auto txParameters = beam::wallet::TxParameters(_txParameters);
+    auto packedTxParams = _txParameters.Pack();
     
-    // TODO:SWAP need to consider the creation of separate struct
-    txParameters.SetParameter(beam::wallet::TxParameterID::Status, beam::wallet::TxStatus::Pending);
-    
-    _walletModel.getAsync()->publishSwapOffer(txParameters);
+    auto txId = _txParameters.GetTxID();
+    auto publisherId = _txParameters.GetParameter<beam::wallet::WalletID>(beam::wallet::TxParameterID::PeerID);
+    if (publisherId && txId)
+    {
+        beam::wallet::SwapOffer offer(*txId);
+        offer.m_txId = *txId;
+        offer.m_publisherId = *publisherId;
+        offer.m_status = beam::wallet::SwapOfferStatus::Pending;
+        offer.SetTxParameters(packedTxParams);
+        
+        _walletModel.getAsync()->publishSwapOffer(offer);
+    }
 }
 
 namespace
@@ -403,7 +380,7 @@ void ReceiveSwapViewModel::updateTransactionToken()
 {
     emit enoughChanged();
     emit lessThanFeeChanged();
-    _txParameters.SetParameter(beam::wallet::TxParameterID::MinHeight, _currentHeight);
+    _txParameters.SetParameter(beam::wallet::TxParameterID::MinHeight, _walletModel.getCurrentHeight());
     _txParameters.SetParameter(beam::wallet::TxParameterID::PeerResponseTime, GetBlockCount(_offerExpires));
 
     // All parameters sets as if we were on the recipient side (mirrored)

@@ -14,11 +14,12 @@
 
 #include "swap_offers_board.h"
 
+#include "p2p/protocol_base.h"
+
 namespace beam::wallet
 {
-    SwapOffersBoard::SwapOffersBoard(FlyClient::INetwork& network, IWalletObserver& observer, IWalletMessageEndpoint& messageEndpoint)
+    SwapOffersBoard::SwapOffersBoard(FlyClient::INetwork& network, IWalletMessageEndpoint& messageEndpoint)
         :   m_network(network),
-            m_observer(observer),
             m_messageEndpoint(messageEndpoint)
     {
     }
@@ -32,58 +33,108 @@ namespace beam::wallet
 
     void SwapOffersBoard::OnMsg(proto::BbsMsg &&msg)
     {
-        if (msg.m_Message.empty())
+        if (msg.m_Message.empty() || msg.m_Message.size() < MsgHeader::SIZE)
             return;
 
-        // TODO: Offers validation
-        TxToken token;
+        SwapOfferToken token;
         SwapOfferConfirmation confirmation;
 
-        Deserializer d;
-        d.reset(msg.m_Message.data(), msg.m_Message.size());
-        d & token;
-        d & confirmation.m_Signature;
-        
-        auto offer = token.UnpackParameters();
-        auto txId = offer.GetTxID();
-        auto status = offer.GetParameter<TxStatus>(TxParameterID::Status);
-        auto peerId = offer.GetParameter<WalletID>(TxParameterID::PeerID);
-        if (txId && status && peerId)
+        try
         {
-            confirmation.m_offerData = toByteBuffer(token);
-                        
-            if (!confirmation.IsValid(peerId->m_Pk))
+            MsgHeader header(msg.m_Message.data());
+            if (header.V0 != 0 ||
+                header.V1 != 0 ||
+                header.V2 != m_protocolVersion ||
+                header.type != 0)
             {
-                LOG_WARNING() << "not crypted BBS signature is invalid";
+                LOG_WARNING() << "offer board message version unsupported";
                 return;
             }
 
-            auto offerExist = m_offersCache.find(*txId);
-            if (offerExist == m_offersCache.end())
-            {
-                // new offer
-                m_offersCache[*txId] = offer;
-                m_observer.onSwapOffersChanged(ChangeAction::Added, std::vector<SwapOffer>{offer});
-            }
-            else
-            {
-                // existing offer update
-                TxStatus newOfferStatus;
-                if (!offer.GetParameter(TxParameterID::Status, newOfferStatus))
-                {
-                    return;
-                }
+            // message body
+            Deserializer d;
+            d.reset(msg.m_Message.data() + header.SIZE, header.size);
+            d & token;
+            d & confirmation.m_Signature;
+        }
+        catch(...)
+        {
+            LOG_WARNING() << "offer board message deserialization exception";
+            return;
+        }
+        
+        auto offer = token.Unpack();
+        auto txId = offer.m_txId;
+        auto status = offer.m_status;
+        auto publisherId = offer.m_publisherId;
 
-                if (newOfferStatus != TxStatus::Pending)
+        confirmation.m_offerData = toByteBuffer(token);
+                    
+        if (!confirmation.IsValid(publisherId.m_Pk))
+        {
+            LOG_WARNING() << "offer board message signature is invalid";
+            return;
+        }
+
+        auto offerExist = m_offersCache.find(txId);
+        if (offerExist == m_offersCache.end())
+        {
+            // new offer
+            m_offersCache[txId] = offer;
+            for (auto sub : m_subscribers)
+            {
+                sub->onSwapOffersChanged(ChangeAction::Added, std::vector<SwapOffer>{offer});
+            }
+        }
+        else
+        {
+            // existing offer update
+            if (status != SwapOfferStatus::Pending)
+            {
+                m_offersCache[txId].m_status = status;
+                for (auto sub : m_subscribers)
                 {
-                    m_offersCache[*txId].SetParameter(TxParameterID::Status, newOfferStatus);
-                    m_observer.onSwapOffersChanged(ChangeAction::Removed, std::vector<SwapOffer>{offer});
+                    sub->onSwapOffersChanged(ChangeAction::Removed, std::vector<SwapOffer>{offer});
                 }
             }
         }
     }
 
-    void SwapOffersBoard::subscribe(AtomicSwapCoin coinType)
+    void SwapOffersBoard::onTransactionChanged(ChangeAction action, const std::vector<TxDescription>& items)
+    {
+        if (action != ChangeAction::Removed)
+        {
+            for (const auto& item : items)
+            {
+                switch (item.m_status)
+                {
+                    case TxStatus::InProgress:
+                        updateOffer(item.m_txId, SwapOfferStatus::InProgress);
+                        break;
+                    case TxStatus::Failed:
+                    {
+                        auto reason = item.GetParameter<TxFailureReason>(TxParameterID::InternalFailureReason);
+                        SwapOfferStatus status = SwapOfferStatus::Failed;
+
+                        if (reason && *reason == TxFailureReason::TransactionExpired)
+                        {
+                            status = SwapOfferStatus::Expired;
+                        }
+                        updateOffer(item.m_txId, status);
+                        break;
+                    }
+                    case TxStatus::Canceled:
+                        updateOffer(item.m_txId, SwapOfferStatus::Cancelled);
+                        break;
+                    default:
+                        // ignore
+                        break;
+                }
+            }
+        }
+    }
+
+    void SwapOffersBoard::selectSwapCoin(AtomicSwapCoin coinType)
     {
         auto it = m_channelsMap.find(coinType);
         if (it != std::cend(m_channelsMap))
@@ -111,8 +162,8 @@ namespace beam::wallet
 
         for (auto offer : m_offersCache)
         {
-            auto status = offer.second.GetParameter<TxStatus>(TxParameterID::Status);
-            if (status && (status.value() == TxStatus::Pending))
+            auto status = offer.second.m_status;
+            if (status == SwapOfferStatus::Pending)
             {
                 offers.push_back(offer.second);
             }
@@ -138,33 +189,51 @@ namespace beam::wallet
     void SwapOffersBoard::publishOffer(const SwapOffer& offer) const
     {
         auto channel = getChannel(offer);
-        auto peerId = offer.GetParameter<WalletID>(TxParameterID::PeerID);
         
-        if (channel && peerId)
+        if (channel)
         {
-            beam::wallet::TxToken token(offer);
-            m_messageEndpoint.SendAndSign(toByteBuffer(token), channel.value(), peerId.value());
+            LOG_INFO() << offer.m_txId << " Publish offer";
+            beam::wallet::SwapOfferToken token(offer);
+            m_messageEndpoint.SendAndSign(toByteBuffer(token), *channel, offer.m_publisherId, m_protocolVersion);
         }
     }
 
-    void SwapOffersBoard::updateOffer(const TxID& offerTxID, TxStatus newStatus) const
+    void SwapOffersBoard::updateOffer(const TxID& offerTxID, SwapOfferStatus newStatus) const
     {
         auto offerExist = m_offersCache.find(offerTxID);
         if (offerExist != m_offersCache.end())
         {
             auto channel = getChannel(offerExist->second);
-            auto peerId = offerExist->second.GetParameter<WalletID>(TxParameterID::PeerID);
+            auto publisherId = offerExist->second.m_publisherId;
+            auto currentStatus = offerExist->second.m_status;
 
-            if (peerId && channel)
+            if (channel && currentStatus != newStatus)
             {
-                SwapOffer offerUpdate(offerTxID);
-                offerUpdate.SetParameter(TxParameterID::Status, newStatus);
-                offerUpdate.SetParameter(TxParameterID::PeerID, peerId.value());
+                SwapOffer offerUpdate(offerTxID, newStatus, publisherId);
 
-                beam::wallet::TxToken token(offerUpdate);
-                m_messageEndpoint.SendAndSign(toByteBuffer(token), channel.value(), peerId.value());
+                LOG_INFO() << offerUpdate.m_txId << " Update offer status " << 
+                                static_cast<uint32_t>(currentStatus) << " to " <<
+                                static_cast<uint32_t>(newStatus);
+                beam::wallet::SwapOfferToken token(offerUpdate);
+                m_messageEndpoint.SendAndSign(toByteBuffer(token), *channel, publisherId, m_protocolVersion);
             }
         }
+    }
+    
+    void SwapOffersBoard::Subscribe(ISwapOffersObserver* observer)
+    {
+        assert(std::find(m_subscribers.begin(), m_subscribers.end(), observer) == m_subscribers.end());
+
+        m_subscribers.push_back(observer);
+    }
+
+    void SwapOffersBoard::Unsubscribe(ISwapOffersObserver* observer)
+    {
+        auto it = std::find(m_subscribers.begin(), m_subscribers.end(), observer);
+
+        assert(it != m_subscribers.end());
+
+        m_subscribers.erase(it);
     }
 
 } // namespace beam::wallet

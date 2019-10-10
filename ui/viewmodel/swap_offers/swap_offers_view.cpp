@@ -30,6 +30,7 @@ SwapOffersViewModel::SwapOffersViewModel()
         m_ltcClient(AppModel::getInstance().getLitecoinClient()),
         m_qtumClient(AppModel::getInstance().getQtumClient())
 {
+    connect(&m_walletModel, SIGNAL(availableChanged()), this, SIGNAL(beamAvailableChanged()));
     connect(&m_walletModel,
             SIGNAL(txStatus(beam::wallet::ChangeAction, const std::vector<beam::wallet::TxDescription>&)),
             SLOT(onTransactionsDataModelChanged(beam::wallet::ChangeAction, const std::vector<beam::wallet::TxDescription>&)));
@@ -38,41 +39,16 @@ SwapOffersViewModel::SwapOffersViewModel()
             SIGNAL(swapOffersChanged(beam::wallet::ChangeAction, const std::vector<beam::wallet::SwapOffer>&)),
             SLOT(onSwapOffersDataModelChanged(beam::wallet::ChangeAction, const std::vector<beam::wallet::SwapOffer>&)));
 
+    connect(m_btcClient.get(),  SIGNAL(balanceChanged()), this, SIGNAL(btcAvailableChanged()));
+    connect(m_ltcClient.get(), SIGNAL(balanceChanged()), this, SIGNAL(ltcAvailableChanged()));
+    connect(m_qtumClient.get(), SIGNAL(balanceChanged()), this, SIGNAL(qtumAvailableChanged()));
+    connect(m_btcClient.get(), SIGNAL(statusChanged()), this, SIGNAL(btcOKChanged()));
+    connect(m_ltcClient.get(), SIGNAL(statusChanged()), this, SIGNAL(ltcOKChanged()));
+    connect(m_qtumClient.get(), SIGNAL(statusChanged()), this, SIGNAL(qtumOKChanged()));
+
     m_walletModel.getAsync()->setSwapOffersCoinType(m_coinType);
     m_walletModel.getAsync()->getSwapOffers();
     m_walletModel.getAsync()->getWalletStatus();
-
-    m_status.setOnChanged([this]() {
-        emit stateChanged();
-    });
-
-    connect(m_btcClient.get(),  SIGNAL(stateChanged()),
-            this, SLOT(onSwapCoinClientChanged()));
-    connect(m_ltcClient.get(), SIGNAL(stateChanged()),
-            this, SLOT(onSwapCoinClientChanged()));
-    connect(m_qtumClient.get(), SIGNAL(stateChanged()),
-            this, SLOT(onSwapCoinClientChanged()));
-    connect(m_btcClient.get(),
-            SIGNAL(gotStatus(beam::bitcoin::Client::Status)),
-            this,
-            SLOT(onSwapCoinClientChanged(beam::bitcoin::Client::Status)));
-    connect(m_ltcClient.get(),
-            SIGNAL(gotStatus(beam::bitcoin::Client::Status)),
-            this,
-            SLOT(onSwapCoinClientChanged(beam::bitcoin::Client::Status)));
-    connect(m_qtumClient.get(),
-            SIGNAL(gotStatus(beam::bitcoin::Client::Status)),
-            this,
-            SLOT(onSwapCoinClientChanged(beam::bitcoin::Client::Status)));
-
-    m_status.refresh();
-}
-
-SwapOffersViewModel::~SwapOffersViewModel()
-{
-    disconnect(m_btcClient.get(), 0, this, 0);
-    disconnect(m_ltcClient.get(), 0, this, 0);
-    disconnect(m_qtumClient.get(), 0, this, 0);
 }
 
 int SwapOffersViewModel::getCoinType()
@@ -94,7 +70,7 @@ QAbstractItemModel* SwapOffersViewModel::getAllOffers()
 
 double  SwapOffersViewModel::beamAvailable() const
 {
-    return double(int64_t(m_status.getAvailable())) / Rules::Coin;
+    return double(int64_t(m_walletModel.getAvailable())) / Rules::Coin;
 }
 
 double  SwapOffersViewModel::btcAvailable() const
@@ -127,6 +103,21 @@ bool SwapOffersViewModel::qtumOK() const
     return m_qtumClient->getStatus() == Client::Status::Connected;
 }
 
+bool SwapOffersViewModel::btcConnecting()  const
+{
+    return m_btcClient->getStatus() == Client::Status::Connecting;
+}
+
+bool SwapOffersViewModel::ltcConnecting()  const
+{
+    return m_ltcClient->getStatus() == Client::Status::Connecting;
+}
+
+bool SwapOffersViewModel::qtumConnecting()  const
+{
+    return m_qtumClient->getStatus() == Client::Status::Connecting;
+}
+
 QAbstractItemModel* SwapOffersViewModel::getTransactions()
 {
     return &m_transactionsList;
@@ -138,7 +129,6 @@ void SwapOffersViewModel::cancelTx(QVariant variantTxID)
     {
         auto txId = variantTxID.value<beam::wallet::TxID>();
         m_walletModel.getAsync()->cancelTx(txId);
-        m_walletModel.getAsync()->cancelOffer(txId);
     }
 }
 
@@ -163,14 +153,14 @@ PaymentInfoItem* SwapOffersViewModel::getPaymentInfo(QVariant variantTxID)
 
 void SwapOffersViewModel::onTransactionsDataModelChanged(beam::wallet::ChangeAction action, const std::vector<beam::wallet::TxDescription>& transactions)
 {
-    vector<shared_ptr<TxObject>> modifiedTransactions;
-    modifiedTransactions.reserve(transactions.size());
+    vector<shared_ptr<TxObject>> swapTransactions;
+    swapTransactions.reserve(transactions.size());
 
     for (const auto& t : transactions)
     {
         if (t.GetParameter<TxType>(TxParameterID::TransactionType) == TxType::AtomicSwap)
         {
-            modifiedTransactions.push_back(make_shared<TxObject>(t));
+            swapTransactions.push_back(make_shared<TxObject>(t));
         }
     }
 
@@ -178,25 +168,25 @@ void SwapOffersViewModel::onTransactionsDataModelChanged(beam::wallet::ChangeAct
     {
         case ChangeAction::Reset:
             {
-                m_transactionsList.reset(modifiedTransactions);
+                m_transactionsList.reset(swapTransactions);
                 break;
             }
 
         case ChangeAction::Removed:
             {
-                m_transactionsList.remove(modifiedTransactions);
+                m_transactionsList.remove(swapTransactions);
                 break;
             }
 
         case ChangeAction::Added:
             {
-                m_transactionsList.insert(modifiedTransactions);
+                m_transactionsList.insert(swapTransactions);
                 break;
             }
         
         case ChangeAction::Updated:
             {
-                m_transactionsList.update(modifiedTransactions);
+                m_transactionsList.update(swapTransactions);
                 break;
             }
 
@@ -215,24 +205,19 @@ void SwapOffersViewModel::onSwapOffersDataModelChanged(beam::wallet::ChangeActio
 
     for (const auto& offer : offers)
     {
-        // Offers without PeerID don't pass validation
-        WalletID walletID;
-        if (offer.GetParameter(TxParameterID::PeerID, walletID))
+        // Offers without publisherID don't pass validation
+        auto peerResponseTime = offer.GetParameter<beam::Height>(beam::wallet::TxParameterID::PeerResponseTime);
+        auto minHeight = offer.GetParameter<beam::Height>(beam::wallet::TxParameterID::MinHeight);
+        auto currentHeight = m_walletModel.getCurrentHeight();
+
+        QDateTime timeExpiration;
+        if (currentHeight && peerResponseTime && minHeight)
         {
-            QDateTime timeExpiration;
-
-            auto peerResponseTime = offer.GetParameter<beam::Height>(beam::wallet::TxParameterID::PeerResponseTime);
-            auto minHeight = offer.GetParameter<beam::Height>(beam::wallet::TxParameterID::MinHeight);
-            auto currentHeight = m_status.getCurrentHeight();
-
-            if (currentHeight && peerResponseTime && minHeight)
-            {
-                auto expiresHeight = *minHeight + *peerResponseTime;
-                timeExpiration = beamui::CalculateExpiresTime(currentHeight, expiresHeight);
-            }
-
-            modifiedOffers.push_back(make_shared<SwapOfferItem>(offer, m_walletModel.isOwnAddress(walletID), timeExpiration));
+            auto expiresHeight = *minHeight + *peerResponseTime;
+            timeExpiration = beamui::CalculateExpiresTime(currentHeight, expiresHeight);
         }
+
+        modifiedOffers.push_back(make_shared<SwapOfferItem>(offer, m_walletModel.isOwnAddress(offer.m_publisherId), timeExpiration));
     }
 
     switch (action)
@@ -261,16 +246,6 @@ void SwapOffersViewModel::onSwapOffersDataModelChanged(beam::wallet::ChangeActio
     }
     
     emit allOffersChanged();
-}
-
-void SwapOffersViewModel::onSwapCoinClientChanged(Client::Status status)
-{
-    onSwapCoinClientChanged();
-}
-
-void SwapOffersViewModel::onSwapCoinClientChanged()
-{
-    emit stateChanged();
 }
 
 bool SwapOffersViewModel::showBetaWarning() const
@@ -317,12 +292,12 @@ bool SwapOffersViewModel::hasBtcTx() const
 
 bool SwapOffersViewModel::hasLtcTx() const
 {
-    return hasActiveTx(toStdString(beamui::Currencies::Bitcoin));
+    return hasActiveTx(toStdString(beamui::Currencies::Litecoin));
 }
 
 bool SwapOffersViewModel::hasQtumTx() const
 {
-    return hasActiveTx(toStdString(beamui::Currencies::Bitcoin));
+    return hasActiveTx(toStdString(beamui::Currencies::Qtum));
 }
 
 bool SwapOffersViewModel::hasActiveTx(const std::string& swapCoin) const

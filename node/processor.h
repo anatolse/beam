@@ -204,7 +204,7 @@ public:
 	void SaveSyncData();
 	void LogSyncData();
 
-	void ExtractBlockWithExtra(Block::Body&, const NodeDB::StateID&);
+	bool ExtractBlockWithExtra(Block::Body&, const NodeDB::StateID&);
 
 	struct DataStatus {
 		enum Enum {
@@ -234,6 +234,8 @@ public:
 	void EnumCongestions();
 	const uint64_t* get_CachedRows(const NodeDB::StateID&, Height nCountExtra); // retval valid till next call to this func, or to EnumCongestions()
 	void TryGoUp();
+	void TryGoTo(NodeDB::StateID&);
+	void OnFastSyncOver(MultiblockContext&, NodeDB::StateID& sidFwd, bool& bContextFail);
 
 	// Lowest height to which it's possible to rollback.
 	Height get_LowestReturnHeight() const;
@@ -368,6 +370,7 @@ private:
 	size_t GenerateNewBlockInternal(BlockContext&);
 	void GenerateNewHdr(BlockContext&);
 	DataStatus::Enum OnStateInternal(const Block::SystemState::Full&, Block::SystemState::ID&, bool bAlreadyChecked);
+	bool GetBlockInternal(const NodeDB::StateID&, ByteBuffer* pEthernal, ByteBuffer* pPerishable, Height h0, Height hLo1, Height hHi1, bool bActive, Block::Body*);
 };
 
 struct LogSid

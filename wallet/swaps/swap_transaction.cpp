@@ -81,6 +81,11 @@ namespace beam::wallet
 
     SecondSide::Ptr AtomicSwapTransaction::WrapperSecondSide::operator -> ()
     {
+        return GetSecondSide();
+    }
+
+    SecondSide::Ptr AtomicSwapTransaction::WrapperSecondSide::GetSecondSide()
+    {
         if (!m_secondSide)
         {
             m_secondSide = m_gateway.GetSecondSide(m_tx);
@@ -168,7 +173,7 @@ namespace beam::wallet
         case State::BuildingBeamRedeemTX:
         case State::BuildingBeamRefundTX:
         {
-            SetNextState(State::Cancelled);
+            SetNextState(State::Canceled);
             return;
         }
         default:
@@ -270,6 +275,13 @@ namespace beam::wallet
             {
             case State::Initial:
             {
+                if (Height responseHeight = MaxHeight; !GetParameter(TxParameterID::PeerResponseHeight, responseHeight))
+                {
+                    Height minHeight = GetMandatoryParameter<Height>(TxParameterID::MinHeight);
+                    Height responseTime = GetMandatoryParameter<Height>(TxParameterID::PeerResponseTime);
+                    SetParameter(TxParameterID::PeerResponseHeight, minHeight + responseTime);
+                }
+
                 if (IsInitiator())
                 {
                     if (!m_secondSide->Initialize())
@@ -283,19 +295,24 @@ namespace beam::wallet
                 }
                 else
                 {
+                    // TODO: refactor this
+                    // hack, used for increase refCount!
+                    auto secondSide = m_secondSide.GetSecondSide();
+
                     Height lockTime = 0;
                     if (!GetParameter(TxParameterID::AtomicSwapExternalLockTime, lockTime))
                     {
                         //we doesn't have an answer from other participant
+                        UpdateOnNextTip();
                         break;
                     }
 
-                    if (!m_secondSide->Initialize())
+                    if (!secondSide->Initialize())
                     {
                         break;
                     }
 
-                    if (!m_secondSide->ValidateLockTime())
+                    if (!secondSide->ValidateLockTime())
                     {
                         LOG_ERROR() << GetTxID() << "[" << static_cast<SubTxID>(SubTxIndex::LOCK_TX) << "] " << "Lock height is unacceptable.";
                         OnSubTxFailed(TxFailureReason::InvalidTransaction, SubTxIndex::LOCK_TX, true);
@@ -496,11 +513,11 @@ namespace beam::wallet
                 GetGateway().on_tx_completed(GetTxID());
                 break;
             }
-            case State::Cancelled:
+            case State::Canceled:
             {
                 LOG_INFO() << GetTxID() << " Transaction cancelled.";
-                NotifyFailure(TxFailureReason::Cancelled);
-                UpdateTxDescription(TxStatus::Cancelled);
+                NotifyFailure(TxFailureReason::Canceled);
+                UpdateTxDescription(TxStatus::Canceled);
 
                 RollbackTx();
 
@@ -512,7 +529,7 @@ namespace beam::wallet
                 TxFailureReason reason = TxFailureReason::Unknown;
                 if (GetParameter(TxParameterID::FailureReason, reason))
                 {
-                    if (reason == TxFailureReason::Cancelled)
+                    if (reason == TxFailureReason::Canceled)
                     {
                         LOG_ERROR() << GetTxID() << " Swap cancelled. The other side has cancelled the transaction.";
                     }
@@ -653,7 +670,7 @@ namespace beam::wallet
         TxStatus s = TxStatus::Failed;
         if (GetParameter(TxParameterID::Status, s)
             && (s == TxStatus::Failed
-                || s == TxStatus::Cancelled
+                || s == TxStatus::Canceled
                 || s == TxStatus::Completed))
         {
             return false;
@@ -661,7 +678,7 @@ namespace beam::wallet
 
         Height lockTxMaxHeight = MaxHeight;
         if (!GetParameter(TxParameterID::MaxHeight, lockTxMaxHeight, SubTxIndex::BEAM_LOCK_TX)
-            && !GetParameter(TxParameterID::PeerResponseHeight, lockTxMaxHeight, SubTxIndex::BEAM_LOCK_TX))
+            && !GetParameter(TxParameterID::PeerResponseHeight, lockTxMaxHeight))
         {
             return false;
         }

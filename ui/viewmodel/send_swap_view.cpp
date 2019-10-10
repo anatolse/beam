@@ -29,32 +29,10 @@ SendSwapViewModel::SendSwapViewModel()
     , _change(0)
     , _walletModel(*AppModel::getInstance().getWallet())
 {
-    LOG_INFO() << "SendSwapViewModel created";
     connect(&_walletModel, &WalletModel::changeCalculated,  this,  &SendSwapViewModel::onChangeCalculated);
+    connect(&_walletModel, &WalletModel::availableChanged, this, &SendSwapViewModel::recalcAvailable);
 
-    _status.setOnChanged([this]() {
-        recalcAvailable();
-
-        if (!_expiresTime.isValid())
-        {
-            auto peerResponseTime = _txParameters.GetParameter<beam::Height>(beam::wallet::TxParameterID::PeerResponseTime);
-            auto minHeight = _txParameters.GetParameter<beam::Height>(beam::wallet::TxParameterID::MinHeight);
-            auto currentHeight = _status.getCurrentHeight();
-
-            if (currentHeight && minHeight && peerResponseTime)
-            {
-                auto expiresHeight = *minHeight + *peerResponseTime;
-                setExpiresTime(beamui::CalculateExpiresTime(currentHeight, expiresHeight));
-            }
-        }
-    });
-
-    _status.refresh();
-}
-
-SendSwapViewModel::~SendSwapViewModel()
-{
-    LOG_INFO() << "SendSwapViewModel destroyed";
+    _walletModel.getAsync()->getWalletStatus();
 }
 
 QString SendSwapViewModel::getToken() const
@@ -116,12 +94,11 @@ void SendSwapViewModel::fillParameters(beam::wallet::TxParameters parameters)
         }
         setOfferedTime(QDateTime::fromSecsSinceEpoch(*offeredTime));
 
-        auto currentHeight = _status.getCurrentHeight();
-        if (currentHeight)
-        {
-            auto expiresHeight = *minHeight + *peerResponseTime;
-            setExpiresTime(beamui::CalculateExpiresTime(currentHeight, expiresHeight));
-        }
+        auto currentHeight = _walletModel.getCurrentHeight();
+        assert(currentHeight);
+        auto expiresHeight = *minHeight + *peerResponseTime;
+        setExpiresTime(beamui::CalculateExpiresTime(currentHeight, expiresHeight));
+
         _txParameters = parameters;
     }
 }
@@ -173,7 +150,6 @@ double SendSwapViewModel::getSendAmount() const
 
 void SendSwapViewModel::setSendAmount(double value)
 {
-    LOG_INFO() << "setSendAmount " << value;
     if (value != _sendAmount)
     {
         _sendAmount = value;
@@ -189,7 +165,6 @@ int SendSwapViewModel::getSendFee() const
 
 void SendSwapViewModel::setSendFee(int value)
 {
-    LOG_INFO() << "setSendFee " << value;
     if (value != _sendFee)
     {
         _sendFee = value;
@@ -206,7 +181,6 @@ Currency SendSwapViewModel::getSendCurrency() const
 void SendSwapViewModel::setSendCurrency(Currency value)
 {
     assert(value > Currency::CurrStart && value < Currency::CurrEnd);
-    LOG_INFO() << "setSendCurrency " << static_cast<int>(value);
 
     if (value != _sendCurrency)
     {
@@ -223,7 +197,6 @@ double SendSwapViewModel::getReceiveAmount() const
 
 void SendSwapViewModel::setReceiveAmount(double value)
 {
-    LOG_INFO() << "setReceiveAmount " << value;
     if (value != _receiveAmount)
     {
         _receiveAmount = value;
@@ -238,7 +211,6 @@ int SendSwapViewModel::getReceiveFee() const
 
 void SendSwapViewModel::setReceiveFee(int value)
 {
-    LOG_INFO() << "setReceiveFee " << value;
     if (value != _receiveFee)
     {
         _receiveFee = value;
@@ -254,7 +226,6 @@ Currency SendSwapViewModel::getReceiveCurrency() const
 void SendSwapViewModel::setReceiveCurrency(Currency value)
 {
     assert(value > Currency::CurrStart && value < Currency::CurrEnd);
-    LOG_INFO() << "setReceiveCurrency " << static_cast<int>(value);
 
     if (value != _receiveCurrency)
     {
@@ -270,8 +241,6 @@ QString SendSwapViewModel::getComment() const
 
 void SendSwapViewModel::setComment(const QString& value)
 {
-    LOG_INFO() << "setComment " << value.toStdString();
-
     if (_comment != value)
     {
         _comment = value;
@@ -286,7 +255,6 @@ QDateTime SendSwapViewModel::getOfferedTime() const
 
 void SendSwapViewModel::setOfferedTime(const QDateTime& value)
 {
-    LOG_INFO() << "setOfferedTime " << value.toString().toStdString();
     if (_offeredTime != value)
     {
         _offeredTime = value;
@@ -301,7 +269,6 @@ QDateTime SendSwapViewModel::getExpiresTime() const
 
 void SendSwapViewModel::setExpiresTime(const QDateTime& value)
 {
-    LOG_INFO() << "setExpiresTime " << value.toString().toStdString();
     if (_expiresTime != value)
     {
         _expiresTime = value;
@@ -323,7 +290,7 @@ bool SendSwapViewModel::isEnough() const
     case Currency::CurrBeam:
     {
         auto total = std::round(_sendAmount * beam::Rules::Coin) + _sendFee + _change;
-        return _status.getAvailable() >= total;
+        return _walletModel.getAvailable() >= total;
     }
     case Currency::CurrBtc:
     {
@@ -374,6 +341,16 @@ QString SendSwapViewModel::getReceiverAddress() const
         return beamui::toString(*peerID);
     }
     return _token;
+}
+
+bool SendSwapViewModel::isOwnAddress() const
+{
+    auto peerID = _txParameters.GetParameter<beam::wallet::WalletID>(beam::wallet::TxParameterID::PeerID);
+    if (peerID)
+    {
+        return _walletModel.isOwnAddress(*peerID);
+    }
+    return false;
 }
 
 bool SendSwapViewModel::canSend() const

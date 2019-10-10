@@ -27,8 +27,8 @@
 #include "wallet/wallet_transaction.h"
 #include "core/negotiator.h"
 #include "node/node.h"
-#include "wallet/local_private_key_keeper.h"
-#include "wallet/trezor_key_keeper.h"
+#include "keykeeper/local_private_key_keeper.h"
+#include "keykeeper/trezor_key_keeper.h"
 
 #include "test_helpers.h"
 
@@ -45,7 +45,7 @@
 #include <boost/intrusive/list.hpp>
 
 #if defined(BEAM_HW_WALLET)
-#include "wallet/hw_wallet.h"
+#include "keykeeper/hw_wallet.h"
 #endif
 
 using namespace beam;
@@ -419,6 +419,73 @@ namespace
         WALLET_CHECK(stx->m_status == TxStatus::Failed);
         WALLET_CHECK(stx->m_sender == true);
         WALLET_CHECK(stx->m_failureReason == TxFailureReason::NoInputs);
+    }
+
+    void TestTxRollback()
+    {
+        cout << "\nTesting transaction restore on tip rollback...\n";
+
+        io::Reactor::Ptr mainReactor{ io::Reactor::create() };
+        io::Reactor::Scope scope(*mainReactor);
+
+        int completedCount = 2;
+        auto f = [&completedCount, mainReactor](auto)
+        {
+            --completedCount;
+            if (completedCount == 0)
+            {
+                mainReactor->stop();
+                completedCount = 2;
+            }
+        };
+
+
+        auto senderDB = createSenderWalletDB();
+        TestNode node;
+        {
+            TestWalletRig sender("sender", senderDB, f, TestWalletRig::Type::Regular, false, 0);
+            TestWalletRig receiver("receiver", createReceiverWalletDB(), f);
+
+            auto txId = sender.m_Wallet.StartTransaction(CreateSimpleTransactionParameters()
+                .SetParameter(TxParameterID::MyID, sender.m_WalletID)
+                .SetParameter(TxParameterID::PeerID, receiver.m_WalletID)
+                .SetParameter(TxParameterID::Amount, Amount(4))
+                .SetParameter(TxParameterID::Fee, Amount(2))
+                .SetParameter(TxParameterID::Lifetime, Height(200))
+                .SetParameter(TxParameterID::PeerResponseTime, Height(20)));
+
+            mainReactor->run();
+
+            Block::SystemState::Full tip;
+            sender.m_WalletDB->get_History().get_Tip(tip);
+            sender.m_WalletDB->get_History().DeleteFrom(tip.m_Height);
+
+            proto::FlyClient& client = sender.m_Wallet;
+            client.OnRolledBack();
+        }
+
+        completedCount = 1;
+        TestWalletRig sender("sender", senderDB, f, TestWalletRig::Type::Regular, false, 0);
+        mainReactor->run();
+
+       // check coins
+       vector<Coin> newSenderCoins = sender.GetCoins();
+       
+        WALLET_CHECK(newSenderCoins[0].m_ID.m_Value == 5);
+        WALLET_CHECK(newSenderCoins[0].m_status == Coin::Spent);
+        WALLET_CHECK(newSenderCoins[0].m_ID.m_Type == Key::Type::Regular);
+
+        WALLET_CHECK(newSenderCoins[1].m_ID.m_Value == 2);
+        WALLET_CHECK(newSenderCoins[1].m_status == Coin::Available);
+        WALLET_CHECK(newSenderCoins[1].m_ID.m_Type == Key::Type::Regular);
+
+        WALLET_CHECK(newSenderCoins[2].m_ID.m_Value == 1);
+        WALLET_CHECK(newSenderCoins[2].m_status == Coin::Spent);
+        WALLET_CHECK(newSenderCoins[2].m_ID.m_Type == Key::Type::Regular);
+
+        WALLET_CHECK(newSenderCoins[3].m_ID.m_Value == 9);
+        WALLET_CHECK(newSenderCoins[3].m_status == Coin::Available);
+        WALLET_CHECK(newSenderCoins[3].m_ID.m_Type == Key::Type::Regular);
     }
 
     void TestSplitTransaction()
@@ -1264,7 +1331,7 @@ namespace
         printf("Testing bbs with wallets2 ...\n");
         io::Reactor::Ptr mainReactor(io::Reactor::create());
         io::Reactor::Scope scope(*mainReactor);
-        const int Count = 500;
+        const int Count = 30;
         string nodePath = "node.db";
         if (boost::filesystem::exists(nodePath))
         {
@@ -1310,6 +1377,8 @@ namespace
             .SetParameter(TxParameterID::Lifetime, Height(200)));
 
         mainReactor->run();
+
+        sender.m_Wallet.SetBufferSize(10);
 
         completedCount = 2 * Count;
 
@@ -1455,6 +1524,11 @@ namespace
                 WALLET_CHECK(to == from);
             }
         }
+    }
+
+    void LogSqliteError(void* pArg, int iErrCode, const char* zMsg)
+    {
+        LOG_ERROR() << "(" << iErrCode << ") " << zMsg;
     }
 }
 
@@ -2068,37 +2142,41 @@ int main()
     //Rules::get().DA.MaxAhead_s = 90;// 60 * 1;
     Rules::get().UpdateChecksum();
 
+    sqlite3_config(SQLITE_CONFIG_LOG, LogSqliteError, nullptr);
+
     TestConvertions();
     TestTxParameters();
-
+   
 	TestNegotiation();
-
+   
     TestP2PWalletNegotiationST();
 
+    TestTxRollback();
+   
     {
         io::Reactor::Ptr mainReactor{ io::Reactor::create() };
         io::Reactor::Scope scope(*mainReactor);
         //TestWalletNegotiation(CreateWalletDB<TestWalletDB>(), CreateWalletDB<TestWalletDB2>());
         TestWalletNegotiation(createSenderWalletDB(), createReceiverWalletDB());
     }
-
+   
     TestSplitTransaction();
-
+   
     TestMinimalFeeTransaction();
-
+   
     TestTxToHimself();
-
+   
     TestExpiredTransaction();
-
+   
     TestTransactionUpdate();
     //TestTxPerformance();
     //TestTxNonces();
-
+   
     TestColdWalletSending();
     TestColdWalletReceiving();
-
+   
     TestTxExceptionHandling();
-
+   
     // @nesbox: disabled tests, they work only if device connected
 //#if defined(BEAM_HW_WALLET)
 //    TestHWCommitment();

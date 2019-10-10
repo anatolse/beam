@@ -2217,14 +2217,14 @@ namespace beam::wallet
         m_AddressesCache.erase(id);
     }
 
-    void WalletDB::subscribe(IWalletDbObserver* observer)
+    void WalletDB::Subscribe(IWalletDbObserver* observer)
     {
         assert(std::find(m_subscribers.begin(), m_subscribers.end(), observer) == m_subscribers.end());
 
         m_subscribers.push_back(observer);
     }
 
-    void WalletDB::unsubscribe(IWalletDbObserver* observer)
+    void WalletDB::Unsubscribe(IWalletDbObserver* observer)
     {
         auto it = std::find(m_subscribers.begin(), m_subscribers.end(), observer);
 
@@ -2883,7 +2883,7 @@ namespace beam::wallet
             {
                 switch (txStatus)
                 {
-                case TxStatus::Cancelled:
+                case TxStatus::Canceled:
                 case TxStatus::Failed:
                 case TxStatus::Completed:
                     break;

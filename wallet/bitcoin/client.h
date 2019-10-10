@@ -18,6 +18,7 @@
 #include "settings_provider.h"
 #include "wallet/common.h"
 #include "wallet/wallet_db.h"
+#include "bridge_holder.h"
 
 namespace beam::bitcoin
 {
@@ -38,10 +39,18 @@ namespace beam::bitcoin
     {
     public:
 
-        using CreateBridge = std::function<IBridge::Ptr(io::Reactor& reactor, ISettingsProvider::Ptr settingsProvider)>;
-
         struct Balance
         {
+            bool operator == (const Balance& other) const
+            {
+                return m_available == other.m_available && m_unconfirmed == other.m_unconfirmed && m_immature == other.m_immature;
+            }
+
+            bool operator != (const Balance& other) const
+            {
+                return !(*this == other);
+            }
+
             double m_available = 0;
             double m_unconfirmed = 0;
             double m_immature = 0;
@@ -50,12 +59,13 @@ namespace beam::bitcoin
         enum class Status
         {
             Uninitialized,
+            Connecting,
             Connected,
             Failed,
             Unknown
         };
 
-        Client(CreateBridge bridgeCreator, std::unique_ptr<SettingsProvider> settingsProvider, io::Reactor& reactor);
+        Client(IBridgeHolder::Ptr bridgeHolder, std::unique_ptr<SettingsProvider> settingsProvider, io::Reactor& reactor);
 
         IClientAsync::Ptr GetAsync();
 
@@ -67,10 +77,11 @@ namespace beam::bitcoin
     protected:
         virtual void OnStatus(Status status) = 0;
         virtual void OnBalance(const Balance& balance) = 0;
+        virtual void OnCanModifySettingsChanged(bool canModify) = 0;
 
         bool CanModify() const override;
         void AddRef() override;
-        void Release() override;
+        void ReleaseRef() override;
 
     private:
         // IClientAsync
@@ -87,9 +98,8 @@ namespace beam::bitcoin
         Status m_status;
         io::Reactor& m_reactor;
         IClientAsync::Ptr m_async;
-        IBridge::Ptr m_bridge;
         std::unique_ptr<SettingsProvider> m_settingsProvider;
-        CreateBridge m_bridgeCreator;
+        IBridgeHolder::Ptr m_bridgeHolder;
 
         mutable std::mutex m_mutex;
         using Lock = std::unique_lock<std::mutex>;

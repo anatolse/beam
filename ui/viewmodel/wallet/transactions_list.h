@@ -50,10 +50,15 @@ public:
         IsIncome,
         IsInProgress,
         IsCompleted,
+        IsCanceled,
+        IsFailed,
+        IsExpired,
         IsBeamSideSwap,
         HasPaymentProof,
         SwapCoin,
-        RawTxID
+        RawTxID,
+        Search,
+        Token
     };
 
     TransactionsList();

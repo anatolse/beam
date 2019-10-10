@@ -15,7 +15,7 @@
 #include "wallet_client.h"
 #include "utility/log_rotation.h"
 #include "core/block_rw.h"
-#include "trezor_key_keeper.h"
+#include "keykeeper/trezor_key_keeper.h"
 
 using namespace std;
 
@@ -105,11 +105,6 @@ struct WalletModelBridge : public Bridge<IWalletModelAsync>
     void publishSwapOffer(const wallet::SwapOffer& offer) override
     {
 		call_async(&IWalletModelAsync::publishSwapOffer, offer);
-    }
-    
-    void cancelOffer(const TxID& offerTxID) override
-    {
-		call_async(&IWalletModelAsync::cancelOffer, offerTxID);
     }
 #endif
     void cancelTx(const wallet::TxID& id) override
@@ -346,12 +341,19 @@ namespace beam::wallet
                     wallet->AddMessageEndpoint(walletNetwork);
 
                     wallet_subscriber = make_unique<WalletSubscriber>(static_cast<IWalletObserver*>(this), wallet);
+
 #ifdef BEAM_ATOMIC_SWAP_SUPPORT
-                    auto offersBulletinBoard = make_shared<SwapOffersBoard>(
-                        *nodeNetwork,
-                        static_cast<IWalletObserver&>(*this),
-                        *walletNetwork);
+                    using WalletDbSubscriber = ScopedSubscriber<wallet::IWalletDbObserver, wallet::IWalletDB>;
+                    using SwapOffersBoardSubscriber = ScopedSubscriber<wallet::ISwapOffersObserver, wallet::SwapOffersBoard>;
+
+                    std::unique_ptr<WalletDbSubscriber> walletDbSubscriber;
+                    std::unique_ptr<SwapOffersBoardSubscriber> swapOffersBoardSubscriber;
+
+                    auto offersBulletinBoard = make_shared<SwapOffersBoard>(*nodeNetwork, *walletNetwork);
                     m_offersBulletinBoard = offersBulletinBoard;
+
+                    walletDbSubscriber = make_unique<WalletDbSubscriber>(static_cast<IWalletDbObserver*>(offersBulletinBoard.get()), m_walletDB);
+                    swapOffersBoardSubscriber = make_unique<SwapOffersBoardSubscriber>(static_cast<ISwapOffersObserver*>(this), offersBulletinBoard);
 #endif
 
                     nodeNetwork->tryToConnect();
@@ -616,7 +618,7 @@ namespace beam::wallet
     {
         if (auto p = m_offersBulletinBoard.lock())
         {
-            p->subscribe(type);
+            p->selectSwapCoin(type);
         }
     }
 
@@ -633,14 +635,6 @@ namespace beam::wallet
         if (auto p = m_offersBulletinBoard.lock())
         {
             p->publishOffer(offer);
-        }
-    }
-
-    void WalletClient::cancelOffer(const TxID& offerTxID)
-    {
-        if (auto p = m_offersBulletinBoard.lock())
-        {
-            p->updateOffer(offerTxID, beam::wallet::TxStatus::Cancelled);
         }
     }
 #endif

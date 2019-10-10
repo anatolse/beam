@@ -43,6 +43,7 @@ public:
     auto getTransactionID() const -> QString;
     auto getFailureReason() const -> QString;
     auto hasPaymentProof() const -> bool;
+    QString getToken() const;
 
     bool isIncome() const;
     bool isCancelAvailable() const;
@@ -50,6 +51,9 @@ public:
     bool isInProgress() const;
     bool isCompleted() const;
     bool isSelfTx() const;
+    bool isCanceled() const;
+    bool isFailed() const;
+    bool isExpired() const;
 
     auto isBeamSideSwap() const -> bool;
     auto getSwapCoinName() const -> QString;

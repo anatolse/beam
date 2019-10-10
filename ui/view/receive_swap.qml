@@ -10,8 +10,19 @@ import "./utils.js" as Utils
 
 ColumnLayout {
     id: thisView
+
     property var  defaultFocusItem: sentAmountInput.amountInput
     property bool addressSaved: false
+
+    // callbacks set by parent
+    property var    modeSwitchEnabled: true
+    property var    onClosed: undefined
+    property var    onRegularMode: undefined
+
+    TopGradient {
+        mainRoot: main
+        topColor: Style.accent_incoming
+    }
 
     ReceiveSwapViewModel {
         id: viewModel
@@ -39,6 +50,46 @@ ColumnLayout {
         if (viewModel.receiveCurrency == viewModel.sentCurrency) return true;
         if (viewModel.receiveCurrency != Currency.CurrBeam && viewModel.sentCurrency != Currency.CurrBeam) return true;
         return false;
+    }
+
+    Component.onCompleted: {
+        if (!BeamGlobals.canSwap()) swapna.open();
+    }
+
+    SwapNADialog {
+        id: swapna
+        onRejected: thisView.onClosed()
+        onAccepted: main.openSwapSettings()
+        //% "You do not have any 3rd-party currencies connected.\nUpdate your settings and try again."
+        text:       qsTrId("swap-na-message").replace("\\n", "\n")
+    }
+
+    Item {
+        Layout.fillWidth:    true
+        Layout.topMargin:    75
+        Layout.bottomMargin: 50
+
+        SFText {
+            x:                   parent.width / 2 - width / 2
+            font.pixelSize:      18
+            font.styleName:      "Bold"; font.weight: Font.Bold
+            color:               Style.content_main
+            //% "Create swap offer"
+            text:                qsTrId("wallet-receive-swap-title")
+        }
+
+        CustomSwitch {
+            id:         mode
+            //% "Swap"
+            text:       qsTrId("wallet-swap")
+            x:          parent.width - width
+            checked:    true
+            enabled:    modeSwitchEnabled
+            visible:    modeSwitchEnabled
+            onClicked: {
+                if (!checked) onRegularMode();
+            }
+        }
     }
 
     ColumnLayout {
@@ -295,11 +346,12 @@ ColumnLayout {
                     text:             Utils.calcDisplayRate(receiveAmountInput, sentAmountInput, rate.focus)
                     selectByMouse:    true
                     maximumLength:    30
-                    validator:        DoubleValidator {
-                                         bottom: 0.00000001;
-                                         top: 9999999900000000;
-                                         notation: DoubleValidator.StandardNotation
-                                      }
+                    validator:        RegExpValidator {regExp: /^(([1-9][0-9]{0,7})|(1[0-9]{8})|(2[0-4][0-9]{7})|(25[0-3][0-9]{6})|(0))(\.[0-9]{0,7}[1-9])?$/}
+                    //DoubleValidator {
+                    //                     bottom: 0.00000001;
+                    //                     top: 9999999900000000;
+                    //                     notation: DoubleValidator.StandardNotation
+                    //                  }
                     onTextEdited: {
                         // unbind
                         text = text
@@ -371,7 +423,7 @@ ColumnLayout {
             palette.buttonText: Style.content_main
             icon.source: "qrc:/assets/icon-cancel-white.svg"
             onClicked: {
-                thisView.parent.parent.pop();
+                onClosed();
             }
         }
 
@@ -408,7 +460,7 @@ ColumnLayout {
                 }
                 viewModel.startListen()
                 viewModel.publishToken()
-                thisView.parent.parent.pop();
+                onClosed();
             }
         }
     }
