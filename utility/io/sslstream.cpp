@@ -14,6 +14,7 @@
 
 #include "sslstream.h"
 #include "utility/helpers.h"
+#include "utility/logger.h"
 
 namespace beam { namespace io {
 
@@ -57,10 +58,12 @@ bool SslStream::on_read(ErrorCode ec, void *data, size_t size) {
 }
 
 bool SslStream::on_decrypted_data(void* data, size_t size) {
+    LOG_DEBUG() << "on_decrypted_data";
     return TcpStream::on_read(EC_OK, data, size);
 }
 
 Result SslStream::on_encrypted_data(const SharedBuffer& data, bool flush) {
+    LOG_DEBUG() << "on_encrypted_data";
     return TcpStream::write(data, flush);
 }
 
