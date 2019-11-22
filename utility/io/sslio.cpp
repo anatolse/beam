@@ -206,6 +206,10 @@ Result SSLIO::do_handshake() {
             if (r == SSL_ERROR_WANT_READ) {
                 return send_pending_data(true);
             }
+            else if (r == SSL_ERROR_SSL) {
+                r = SSL_get_error(_ssl, r);
+                LOG_DEBUG() << __FUNCTION__ << TRACE(r);
+            }
             return make_unexpected(EC_SSL_ERROR);
         }
     }
