@@ -58,12 +58,12 @@ bool SslStream::on_read(ErrorCode ec, void *data, size_t size) {
 }
 
 bool SslStream::on_decrypted_data(void* data, size_t size) {
-    LOG_DEBUG() << "on_decrypted_data";
+    LOG_DEBUG() << __FUNCTION__ << " " << TRACE(size);
     return TcpStream::on_read(EC_OK, data, size);
 }
 
 Result SslStream::on_encrypted_data(const SharedBuffer& data, bool flush) {
-    LOG_DEBUG() << "on_encrypted_data";
+    LOG_DEBUG() << __FUNCTION__ << " " << TRACE(flush);
     return TcpStream::write(data, flush);
 }
 

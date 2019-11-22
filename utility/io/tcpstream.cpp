@@ -128,6 +128,7 @@ void TcpStream::enable_keepalive(unsigned initialDelaySecs) {
 }
 
 Result TcpStream::do_write(bool flush) {
+    LOG_DEBUG() << __FUNCTION__ << " " << TRACE(flush);
     size_t nBytes = _writeBuffer.size();
     if (flush && nBytes > 0) {
         ErrorCode ec = _reactor->async_write(this, _writeBuffer, _onDataWritten);
@@ -136,6 +137,7 @@ Result TcpStream::do_write(bool flush) {
             return make_unexpected(ec);
         }
         _state.unsent += nBytes;
+        LOG_DEBUG() << __FUNCTION__ << " " << TRACE(nBytes);
     }
     if (flush) assert(_writeBuffer.empty());
     return Ok();

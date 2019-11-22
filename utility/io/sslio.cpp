@@ -198,8 +198,16 @@ Result SSLIO::send_pending_data(bool flush) {
 
 Result SSLIO::do_handshake() {
     if (!SSL_is_init_finished(_ssl)) {
-        SSL_do_handshake(_ssl);
-        return send_pending_data(true);
+        auto r = SSL_do_handshake(_ssl);
+        LOG_DEBUG() << __FUNCTION__ << TRACE(r);
+        if (r != 1) {
+            r = SSL_get_error(_ssl, r);
+            LOG_DEBUG() << __FUNCTION__ << TRACE(r);
+            if (r == SSL_ERROR_WANT_READ) {
+                return send_pending_data(true);
+            }
+            return make_unexpected(EC_SSL_ERROR);
+        }
     }
     return Ok();
 }
@@ -218,7 +226,7 @@ Result SSLIO::on_encrypted_data_from_stream(const void *data, size_t size) {
         LOG_DEBUG() << TRACE(bytesRemaining);
         r = BIO_write(_rbio, ptr, bytesRemaining);
         if (r <= 0) return make_unexpected(EC_SSL_ERROR);
-
+        LOG_DEBUG() << TRACE(r);
         bytesRemaining -= r;
         ptr += r;
 
