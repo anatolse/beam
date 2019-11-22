@@ -75,6 +75,7 @@ private:
         }
 
         const std::string& path = msg.msg->get_path();
+        LOG_DEBUG() << TRACE(path);
 
         // Create http response
         io::SharedBuffer body;
@@ -90,6 +91,7 @@ private:
                 message = "Not found";
             }
         }
+        LOG_DEBUG() << __LINE__;
 
         const HeaderPair headers[] = {
             {"Server", "DummyHttpServer" },
@@ -106,14 +108,16 @@ private:
             "text/plain",
             body.size
         )) {
+            LOG_DEBUG() << __LINE__;
             if (!body.empty()) _serialized.push_back(body);
+            LOG_DEBUG() << __LINE__;
             _theConnection->write_msg(_serialized);
             _theConnection->shutdown();
         } else {
             LOG_ERROR() << "Cannot create response";
             g_stopEvent();
         }
-
+        LOG_DEBUG() << __LINE__;
         _theConnection.reset();
         _serialized.clear();
         if (stop) {
