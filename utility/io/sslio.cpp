@@ -49,7 +49,7 @@ SSL_CTX* init_ctx(bool isServer) {
     }
 
     static const char* cipher_settings = "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH";
-    static const char* srtp_settings = "SRTP_AES128_CM_SHA1_80";
+    //static const char* srtp_settings = "SRTP_AES128_CM_SHA1_80";
 
     SSL_CTX* ctx = SSL_CTX_new(isServer ? SSLv23_server_method() : SSLv23_client_method());
     if (!ctx) {
