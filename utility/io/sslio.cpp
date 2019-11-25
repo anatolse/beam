@@ -60,11 +60,11 @@ SSL_CTX* init_ctx(bool isServer) {
         LOG_ERROR() << "SSL_CTX_set_cipher_list failed";
         IO_EXCEPTION(EC_SSL_ERROR);
     }
-    // TODO ???
-    if (SSL_CTX_set_tlsext_use_srtp(ctx, srtp_settings) != 0) {
-        LOG_ERROR() << "SSL_CTX_set_tlsext_use_srtp failed";
-        IO_EXCEPTION(EC_SSL_ERROR);
-    }
+    //// TODO ???
+    //if (SSL_CTX_set_tlsext_use_srtp(ctx, srtp_settings) != 0) {
+    //    LOG_ERROR() << "SSL_CTX_set_tlsext_use_srtp failed";
+    //    IO_EXCEPTION(EC_SSL_ERROR);
+    //}
     SSL_CTX_set_options(ctx, SSL_OP_ALL|SSL_OP_NO_SSLv2|SSL_OP_NO_SSLv3);
     return ctx;
 }
@@ -198,20 +198,8 @@ Result SSLIO::send_pending_data(bool flush) {
 
 Result SSLIO::do_handshake() {
     if (!SSL_is_init_finished(_ssl)) {
-        auto r = SSL_do_handshake(_ssl);
-        LOG_DEBUG() << __FUNCTION__ << TRACE(r);
-        if (r != 1) {
-            r = SSL_get_error(_ssl, r);
-            LOG_DEBUG() << __FUNCTION__ << TRACE(r);
-            if (r == SSL_ERROR_WANT_READ) {
-                return send_pending_data(true);
-            }
-            else if (r == SSL_ERROR_SSL) {
-                r = SSL_get_error(_ssl, r);
-                LOG_DEBUG() << __FUNCTION__ << TRACE(r);
-            }
-            return make_unexpected(EC_SSL_ERROR);
-        }
+        SSL_do_handshake(_ssl);
+        return send_pending_data(true);
     }
     return Ok();
 }
