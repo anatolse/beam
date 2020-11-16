@@ -5,6 +5,7 @@ on: [push]
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Release
+  BUILD_CONFIG: RelWithDebInfo  
 
 jobs:
   build_ubuntu:
@@ -69,17 +70,17 @@ jobs:
         OPENSSL_ROOT_DIR: c:\beam-libs\openssl
       shell: cmd  
       run: |
-        cmake %GITHUB_WORKSPACE% -G "Visual Studio 16 2019" -A Win64 -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBEAM_LINK_TYPE=Static -DBRANCH_NAME=%GITHUB_REF% -DBEAM_BUILD_JNI=On -DBEAM_HW_WALLET=Off .
+        cmake %GITHUB_WORKSPACE% -G "Visual Studio 16 2019" -A x64 -DCMAKE_BUILD_TYPE=%BUILD_CONFIG% -DBEAM_LINK_TYPE=Static -DBRANCH_NAME=%GITHUB_REF% -DBEAM_BUILD_JNI=On -DBEAM_HW_WALLET=Off .
 
     - name: Build
       #working-directory: ${{runner.workspace}}/build
       shell: cmd
       # Execute the build.  You can specify a specific target with "--target <NAME>"
-      run: cmake --build . --parallel --config %BUILD_TYPE%
+      run: cmake --build . --parallel --config %BUILD_CONFIG%
 
     - name: Test
       #working-directory: ${{runner.workspace}}/build
       shell: cmd
       # Execute tests defined by the CMake configuration.  
       # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
-      run: ctest -C %BUILD_TYPE% --verbose
+      run: ctest -C %BUILD_CONFIG% --verbose
