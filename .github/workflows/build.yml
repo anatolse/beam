@@ -25,6 +25,7 @@ jobs:
         sudo apt-get install g++-7 libssl-dev curl libxi-dev libcups2-dev
         sudo git clone --depth=1 https://github.com/BeamMW/boost-linux.git /usr/local/boost_1_69_0
         export BOOST_ROOT="/usr/local/boost_1_69_0"
+        eval "CC=gcc-7 && CXX=g++-7"
 
     - name: Configure CMake
       # Use a bash shell so we can use the same syntax for environment variable
