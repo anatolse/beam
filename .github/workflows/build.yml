@@ -60,7 +60,7 @@ jobs:
 
     - name: Create Build Environment
       run: |
-        git apply 3rdparty/protobuf-patch.diff
+        #git apply 3rdparty/protobuf-patch.diff
         git clone --depth=1 https://github.com/BeamMW/libs.git c:/beam-libs
         
     - name: Configure CMake
