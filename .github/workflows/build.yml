@@ -69,7 +69,7 @@ jobs:
         OPENSSL_ROOT_DIR: c:\beam-libs\openssl
       shell: cmd  
       run: |
-        cmake %GITHUB_WORKSPACE% -G "Visual Studio 15 2017 Win64" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBEAM_LINK_TYPE=Static -DBRANCH_NAME=%GITHUB_REF% -DBEAM_BUILD_JNI=On -DBEAM_HW_WALLET=Off .
+        cmake %GITHUB_WORKSPACE% -G "Visual Studio 16 2019" -A Win64 -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBEAM_LINK_TYPE=Static -DBRANCH_NAME=%GITHUB_REF% -DBEAM_BUILD_JNI=On -DBEAM_HW_WALLET=Off .
 
     - name: Build
       #working-directory: ${{runner.workspace}}/build
