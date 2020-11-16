@@ -30,6 +30,9 @@ jobs:
         export BOOST_ROOT="/usr/local/boost_1_69_0"
         
     - name: Configure CMake
+      env:
+        CC: gcc-7
+        CXX: g++-7 
       # Use a bash shell so we can use the same syntax for environment variable
       # access regardless of the host operating system
       shell: bash
