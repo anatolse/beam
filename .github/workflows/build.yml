@@ -34,15 +34,16 @@ jobs:
     - name: Build
       run: |
         cmake --build . --parallel --config $BUILD_TYPE
-        ls $GITHUB_WORKSPACE
-        ls /Users/runner/work/beam/beam/wallet/cli/
 
     - name: Test
-      if: ${{false}}
-      run: ctest -C $BUILD_TYPE --verbose
+      #if: ${{false}}
+      #run: ctest -C $BUILD_TYPE --verbose
+      run: |
+        pwd
+        ./wallet/cli/beam-wallet-master
     
     - name: Deploy
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v2        
       with:
         name: 'beam-wallet'
         path: wallet/cli/beam-wallet-master
