@@ -21,6 +21,7 @@ jobs:
 
     - name: Create Build Environment
       run: |
+        echo $GITHUB_WORKSPACE
         curl -O https://raw.githubusercontent.com/Homebrew/homebrew-core/5da5895add2f6b9320d654dd844d4827f6876c8b/Formula/boost.rb
         brew install ./boost.rb 
         
@@ -35,6 +36,12 @@ jobs:
 
     - name: Test
       run: ctest -C $BUILD_TYPE --verbose
+    
+    - name: Deploy
+      uses: actions/upload-artifact@v2
+      with:
+        name: 'beam-wallet'
+        path: $GITHUB_WORKSPACE/wallet/cli/beam-wallet-master
 
 
 ###############################################################################
