@@ -19,8 +19,10 @@ jobs:
       with:
         fetch-depth: 0
 
-    #- name: Create Build Environment
-    #  run: 
+    - name: Create Build Environment
+      run: |
+        curl -O https://raw.githubusercontent.com/Homebrew/homebrew-core/5da5895add2f6b9320d654dd844d4827f6876c8b/Formula/boost.rb
+        brew install ./boost.rb 
         
     - name: Configure CMake
       run: |
