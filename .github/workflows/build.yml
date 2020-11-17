@@ -8,6 +8,34 @@ env:
   BUILD_CONFIG: RelWithDebInfo  
 
 jobs:
+###############################################################################
+# OSX Release
+###############################################################################
+  build_macosx:
+    runs-on: macos-10.15
+
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+
+    #- name: Create Build Environment
+    #  run: 
+        
+    - name: Configure CMake
+      run: |
+        cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DBEAM_LINK_TYPE=Static -DBOOST_ROOT=$BOOST_ROOT_1_72_0 -DBRANCH_NAME=$GITHUB_REF -DBEAM_SIGN_MACOS_BINARY=On -DBEAM_HW_WALLET=Off .
+        
+    - name: Build
+      run: cmake --build . --parallel --config $BUILD_TYPE
+
+    - name: Test
+      run: ctest -C $BUILD_TYPE --verbose
+
+
+###############################################################################
+# Linux Release
+###############################################################################    
   build_ubuntu:
     # The CMake configure and build commands are platform agnostic and should work equally
     # well on Windows or Mac.  You can convert this to a matrix build if you need
@@ -23,8 +51,8 @@ jobs:
     - name: Create Build Environment
       run: |
         sudo apt-get install g++-7 libssl-dev curl libxi-dev libcups2-dev
-        sudo git clone --depth=1 https://github.com/BeamMW/boost-linux.git /usr/local/boost_1_69_0
-        export BOOST_ROOT="/usr/local/boost_1_69_0"
+        #sudo git clone --depth=1 https://github.com/BeamMW/boost-linux.git /usr/local/boost_1_69_0
+        #export BOOST_ROOT="/usr/local/boost_1_69_0"
         
     - name: Configure CMake
       env:
@@ -39,7 +67,7 @@ jobs:
       # The CMake binaries on the Github Actions machines are (as of this writing) 3.12
       run: |
         git rev-list HEAD --count
-        cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DBEAM_LINK_TYPE=Static -DBRANCH_NAME=$GITHUB_REF -DBEAM_HW_WALLET=Off .
+        cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=$BUILD_TYPE-DBOOST_ROOT=$BOOST_ROOT_1_72_0 -DBEAM_LINK_TYPE=Static -DBRANCH_NAME=$GITHUB_REF -DBEAM_HW_WALLET=Off .
 
 
     - name: Build
@@ -55,6 +83,9 @@ jobs:
       # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
       run: ctest --verbose
       
+###############################################################################
+# Windows Release
+###############################################################################  
   build_windows:
     runs-on: windows-latest
 
@@ -65,7 +96,6 @@ jobs:
 
     - name: Create Build Environment
       run: |
-        #git apply 3rdparty/protobuf-patch.diff
         git clone --depth=1 https://github.com/BeamMW/libs.git c:/beam-libs
         
     - name: Configure CMake
