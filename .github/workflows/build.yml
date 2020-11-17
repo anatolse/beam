@@ -45,7 +45,8 @@ jobs:
       uses: actions/upload-artifact@v2
       with:
         name: 'beam-wallet'
-        path: /Users/runner/work/beam/beam/wallet/cli/beam-wallet-master
+        path: wallet/cli/beam-wallet-master
+        if-no-files-found: error  
 
 
 ###############################################################################
