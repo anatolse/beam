@@ -41,7 +41,7 @@ jobs:
       uses: actions/upload-artifact@v2
       with:
         name: 'beam-wallet'
-        path: wallet/cli/beam-wallet-master
+        path: /Users/runner/work/beam/beam/wallet/cli/beam-wallet-master
 
 
 ###############################################################################
