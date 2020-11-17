@@ -32,9 +32,13 @@ jobs:
         cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DBEAM_LINK_TYPE=Static -DBRANCH_NAME=$GITHUB_REF -DBEAM_SIGN_MACOS_BINARY=On -DBEAM_HW_WALLET=Off .
         
     - name: Build
-      run: cmake --build . --parallel --config $BUILD_TYPE
+      run: |
+        cmake --build . --parallel --config $BUILD_TYPE
+        ls $GITHUB_WORKSPACE
+        ls /Users/runner/work/beam/beam/wallet/cli/
 
     - name: Test
+      if: ${{false}}
       run: ctest -C $BUILD_TYPE --verbose
     
     - name: Deploy
@@ -48,6 +52,7 @@ jobs:
 # Linux Release
 ###############################################################################    
   build_ubuntu:
+    if: ${{false}}
     # The CMake configure and build commands are platform agnostic and should work equally
     # well on Windows or Mac.  You can convert this to a matrix build if you need
     # cross-platform coverage.
@@ -98,6 +103,7 @@ jobs:
 # Windows Release
 ###############################################################################  
   build_windows:
+    if: ${{false}}
     runs-on: windows-latest
 
     steps:
