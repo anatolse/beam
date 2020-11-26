@@ -30,7 +30,7 @@ jobs:
         OPENSSL_ROOT_DIR: "/usr/local/opt/openssl@1.1"  
       run: |
         cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DBEAM_LINK_TYPE=Static -DBRANCH_NAME=$GITHUB_REF -DBEAM_SIGN_MACOS_BINARY=On -DBEAM_HW_WALLET=Off .
-        echo "::set-env name=BEAM_VERSION::$(cat beam_version.gen)"
+        echo "BEAM_VERSION=$(cat beam_version.gen)" >> $GITHUB_ENV
         rm beam_version.gen
         echo BEAM_VERSION = ${{env.BEAM_VERSION}}        
     - name: Build
