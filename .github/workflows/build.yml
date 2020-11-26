@@ -32,8 +32,7 @@ jobs:
         cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DBEAM_LINK_TYPE=Static -DBRANCH_NAME=$GITHUB_REF -DBEAM_SIGN_MACOS_BINARY=On -DBEAM_HW_WALLET=Off .
         echo "::set-env BEAM_VERSION=$(cat beam_version.gen)"
         rm beam_version.gen
-        echo BEAM_VERSION = $env.BEAM_VERSION
-        
+        echo BEAM_VERSION = ${{env.BEAM_VERSION}}        
     - name: Build
       run: |
         cmake --build . --parallel --config $BUILD_TYPE
@@ -45,7 +44,7 @@ jobs:
     - name: Deploy
       uses: actions/upload-artifact@v2        
       with:
-        name: 'beam-wallet-${{env.BEAM_VERSION}}'
+        name: beam-wallet-${{env.BEAM_VERSION}}
         path: |
           wallet/cli/beam-wallet-masternet
           wallet/cli/beam-wallet.cfg
