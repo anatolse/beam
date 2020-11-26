@@ -40,9 +40,10 @@ jobs:
       #run: ctest -C $BUILD_TYPE --verbose
       run: |
         pwd
+        cd $(pwd)
+        cd wallet/cli
         ls
-        ./wallet/cli/beam-wallet-master
-        wallet/cli/beam-wallet-master
+        ./beam-wallet-master
     
     - name: Deploy
       uses: actions/upload-artifact@v2        
