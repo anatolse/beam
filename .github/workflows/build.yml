@@ -34,8 +34,9 @@ jobs:
       run: |
         cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DBEAM_LINK_TYPE=Static -DBRANCH_NAME=$GITHUB_REF -DBEAM_SIGN_MACOS_BINARY=On -DBEAM_HW_WALLET=Off .
         echo "BEAM_VERSION=$(cat beam_version.gen)" >> $GITHUB_ENV
+        echo "BEAM_TARGET_SUFFIX=-masternet" >> $GITHUB_ENV
         rm beam_version.gen
-        echo BEAM_VERSION = ${{env.BEAM_VERSION}}        
+        
     - name: Build
       run: |
         cmake --build . --parallel --config $BUILD_TYPE
@@ -44,24 +45,46 @@ jobs:
       if: ${{false}}
       run: ctest -C $BUILD_TYPE --verbose
     
-    - name: Deploy wallet
-      uses: actions/upload-artifact@v2        
-      with:
-        name: beam-wallet-${{env.BEAM_VERSION}}
-        path: |
-          wallet/cli/beam-wallet-masternet
-          wallet/cli/beam-wallet.cfg
-        if-no-files-found: error  
+    - name: Pack artifacts
+      run: |
+        tar -cvzf beam-node$BEAM_TARGET_SUFFIX-$BEAM_VERSION.tar.gz --directory=beam beam-node$BEAM_TARGET_SUFFIX beam-node.cfg
+        tar -cvzf beam-wallet-cli$BEAM_TARGET_SUFFIX-$BEAM_VERSION.tar.gz --directory=wallet/cli beam-wallet$BEAM_TARGET_SUFFIX beam-wallet.cfg
+        tar -cvzf wallet-api$BEAM_TARGET_SUFFIX-$BEAM_VERSION.tar.gz --directory=wallet/api/ wallet-api$BEAM_TARGET_SUFFIX wallet-api.cfg
+        tar -cvzf explorer-node$BEAM_TARGET_SUFFIX-$BEAM_VERSION.tar.gz --directory=explorer explorer-node$BEAM_TARGET_SUFFIX explorer-node.cfg
+        tar -cvzf broadcaster$BEAM_TARGET_SUFFIX-$BEAM_VERSION.tar.gz --directory=wallet/broadcaster broadcaster$BEAM_TARGET_SUFFIX
 
-
-    - name: Deploy node
-      uses: actions/upload-artifact@v2        
+    
+    - uses: actions/upload-artifact@v2        
       with:
-        name: beam-node-${{env.BEAM_VERSION}}
-        path: |
-          beam/beam-node-masternet
-          beam/beam-node.cfg
+        name: mac/beam-node${{BEAM_TARGET_SUFFIX}}-${{BEAM_VERSION}}
+        path: beam-node${{BEAM_TARGET_SUFFIX}}-${{BEAM_VERSION}}.tar.gz
         if-no-files-found: error
+    
+    - uses: actions/upload-artifact@v2        
+      with:
+        name: mac/beam-wallet-cli${{BEAM_TARGET_SUFFIX}}-${{BEAM_VERSION}}
+        path: beam-wallet-cli${{BEAM_TARGET_SUFFIX}}-${{BEAM_VERSION}}.tar.gz
+        if-no-files-found: error
+ 
+    - uses: actions/upload-artifact@v2        
+      with:
+        name: mac/wallet-api${{BEAM_TARGET_SUFFIX}}-${{BEAM_VERSION}}
+        path: wallet-api${{BEAM_TARGET_SUFFIX}}-${{BEAM_VERSION}}.tar.gz
+        if-no-files-found: error
+    
+    - uses: actions/upload-artifact@v2        
+      with:
+        name: mac/explorer-node${{BEAM_TARGET_SUFFIX}}-${{BEAM_VERSION}}
+        path: explorer-node${{BEAM_TARGET_SUFFIX}}-${{BEAM_VERSION}}.tar.gz
+        if-no-files-found: error
+        
+    - uses: actions/upload-artifact@v2        
+      with:
+        name: mac/broadcaster${{BEAM_TARGET_SUFFIX}}-${{BEAM_VERSION}}
+        path: broadcaster${{BEAM_TARGET_SUFFIX}}-${{BEAM_VERSION}}.tar.gz
+        if-no-files-found: error
+    
+
 
 ###############################################################################
 # Linux Release
