@@ -36,20 +36,15 @@ jobs:
         cmake --build . --parallel --config $BUILD_TYPE
 
     - name: Test
-      #if: ${{false}}
-      #run: ctest -C $BUILD_TYPE --verbose
-      run: |
-        pwd
-        cd $(pwd)
-        cd wallet/cli
-        ls
-        ./beam-wallet-master
+      run: ctest -C $BUILD_TYPE --verbose
     
     - name: Deploy
       uses: actions/upload-artifact@v2        
       with:
         name: 'beam-wallet'
-        path: wallet/cli/beam-wallet-master
+        path: |
+          wallet/cli/beam-wallet-masternet
+          wallet/cli/beam-wallet.cfg
         if-no-files-found: error  
 
 
