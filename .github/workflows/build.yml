@@ -55,8 +55,8 @@ jobs:
     
     - uses: actions/upload-artifact@v2        
       with:
-        name: mac/beam-node${{BEAM_TARGET_SUFFIX}}-${{BEAM_VERSION}}
-        path: beam-node${{BEAM_TARGET_SUFFIX}}-${{BEAM_VERSION}}.tar.gz
+        name: mac/beam-node-${{BEAM_VERSION}}
+        path: beam-node-${{BEAM_VERSION}}.tar.gz
         if-no-files-found: error
     
     - uses: actions/upload-artifact@v2        
