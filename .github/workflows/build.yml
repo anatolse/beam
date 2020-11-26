@@ -5,7 +5,10 @@ on: [push]
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Release
-  BUILD_CONFIG: RelWithDebInfo  
+  BUILD_CONFIG: RelWithDebInfo
+  
+#base_deploy: &base
+    
 
 jobs:
 ###############################################################################
@@ -41,7 +44,7 @@ jobs:
       if: ${{false}}
       run: ctest -C $BUILD_TYPE --verbose
     
-    - name: Deploy
+    - name: Deploy wallet
       uses: actions/upload-artifact@v2        
       with:
         name: beam-wallet-${{env.BEAM_VERSION}}
@@ -50,6 +53,15 @@ jobs:
           wallet/cli/beam-wallet.cfg
         if-no-files-found: error  
 
+
+    - name: Deploy node
+      uses: actions/upload-artifact@v2        
+      with:
+        name: beam-node-${{env.BEAM_VERSION}}
+        path: |
+          beam/beam-node-masternet
+          beam/beam-node.cfg
+        if-no-files-found: error
 
 ###############################################################################
 # Linux Release
