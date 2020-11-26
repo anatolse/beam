@@ -8,7 +8,6 @@ env:
   BUILD_CONFIG: RelWithDebInfo
   
 #base_deploy: &base
-    
 
 jobs:
 ###############################################################################
@@ -34,7 +33,7 @@ jobs:
       run: |
         cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DBEAM_LINK_TYPE=Static -DBRANCH_NAME=$GITHUB_REF -DBEAM_SIGN_MACOS_BINARY=On -DBEAM_HW_WALLET=Off .
         echo "BEAM_VERSION=$(cat beam_version.gen)" >> $GITHUB_ENV
-        echo "BEAM_TARGET_SUFFIX=-masternet" >> $GITHUB_ENV
+        echo "BEAM_TARGET_SUFFIX=$(cat beam_version.gen)" >> $GITHUB_ENV
         rm beam_version.gen
         
     - name: Build
